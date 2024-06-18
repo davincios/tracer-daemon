@@ -23,22 +23,21 @@ pub struct TracerClient {
 
 #[derive(Debug)]
 pub enum EventStatus {
-    NewRun,
+    // NewRun,
     FinishedRun,
-    RunStatusMessage,
+    // RunStatusMessage,
     ToolExecution,
-    InstallationFinished,
     MetricEvent,
 }
 
 impl EventStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            EventStatus::NewRun => "new_run",
+            // EventStatus::NewRun => "new_run",
             EventStatus::FinishedRun => "finished_run",
-            EventStatus::RunStatusMessage => "run_status_message",
+            // EventStatus::RunStatusMessage => "run_status_message",
             EventStatus::ToolExecution => "tool_execution",
-            EventStatus::InstallationFinished => "installation_finished",
+            // EventStatus::InstallationFinished => "installation_finished",
             EventStatus::MetricEvent => "metric_event",
         }
     }
