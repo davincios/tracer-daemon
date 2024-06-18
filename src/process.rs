@@ -129,7 +129,7 @@ impl TracerClient {
     pub async fn remove_completed_processes(&mut self) -> Result<()> {
         let mut to_remove = vec![];
         for (pid, p_name) in self.seen.iter() {
-            if !self.system.processes().contains_key(&pid) {
+            if !self.system.processes().contains_key(pid) {
                 let attributes = json!({
                     "execution_duration": "",
                 });
@@ -141,7 +141,7 @@ impl TracerClient {
                 )
                 .await?;
 
-                to_remove.push(pid.clone());
+                to_remove.push(*pid);
             }
         }
         // cleanup exited processes
