@@ -17,6 +17,7 @@ jobs:
 
   upload-assets:
     needs: create-release
+    permissions: write-all
     strategy:
       matrix:
         include:
