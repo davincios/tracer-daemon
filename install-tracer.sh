@@ -15,11 +15,12 @@
 #---  PARAMETERS  --------------------------------------------------------------
 #   DESCRIPTION:  Parameters used in the rest of this script
 #-------------------------------------------------------------------------------
+# https://github.com/davincios/tracer-daemon/releases/download/v0.0.8/tracer-daemon-universal-apple-darwin.tar.gz
 SCRIPT_VERSION="v0.0.1"
-TRACER_VERSION="v0.0.73"
-TRACER_LINUX_URL="https://github.com/davincios/tracer-cli/releases/download/${TRACER_VERSION}/tracer-x86_64-unknown-linux-gnu.tar.gz"
-TRACER_MACOS_AARCH_URL="https://github.com/davincios/tracer-cli/releases/download/${TRACER_VERSION}/tracer-aarch64-apple-darwin.tar.gz"
-TRACER_MACOS_UNIVERSAL_URL="https://github.com/davincios/tracer-cli/releases/download/${TRACER_VERSION}/tracer-universal-apple-darwin.tar.gz"
+TRACER_VERSION="v0.0.8"
+TRACER_LINUX_URL="https://github.com/davincios/tracer-daemon/releases/download/${TRACER_VERSION}/tracer-daemon-x86_64-unknown-linux-gnu.tar.gz"
+TRACER_MACOS_AARCH_URL="https://github.com/davincios/tracer-daemon/releases/download/${TRACER_VERSION}/tracer-daemon-aarch64-apple-darwin.tar.gz"
+TRACER_MACOS_UNIVERSAL_URL="https://github.com/davincios/tracer-daemon/releases/download/${TRACER_VERSION}/tracer-daemon-universal-apple-darwin.tar.gz"
 
 TRACER_HOME="$HOME/.tracerbio"
 LOGFILE_NAME="tracer-installer.log"
@@ -273,17 +274,25 @@ function download_tracer() {
         exit 1
     fi
     printmsg " done."
+
+    # Check if the file is a valid gzip file
+    if ! gzip -t "${DLTARGET}/${PACKAGE_NAME}" >/dev/null 2>&1; then
+        FILE_TYPE=$(file -b "${DLTARGET}/${PACKAGE_NAME}")
+        echo "Downloaded file is not a valid gzip file. It is a ${FILE_TYPE}. Please check the download URL and try again."
+        exit 1
+    fi
+
     printpinfo "Extracting package..."
     tar -xzf "${DLTARGET}/${PACKAGE_NAME}" -C "$EXTRACTTARGET"
     printmsg " done."
-    chmod +x "${EXTRACTTARGET}/tracer"
+    chmod +x "${EXTRACTTARGET}/tracer-daemon"
     if [ $? -ne 0 ]; then
         printerror "Failed to set executable permissions on extracted binary. Please check your permissions and mount flags."
         exit 1
     fi
 
     # move binary to bin dir
-    mv "${EXTRACTTARGET}/tracer" "$BINDIR/tracer"
+    mv "${EXTRACTTARGET}/tracer-daemon" "$BINDIR/tracer-daemon"
     if [ $? -ne 0 ]; then
         printerror "Failed to move Tracer binary to ${Blu}$BINDIR${RCol}. Please check your permissions and try again."
         exit 1
@@ -333,26 +342,6 @@ function configure_tracer() {
         fi
     fi
 
-}
-
-#-------------------------------------------------------------------------------
-#          NAME:  setup_tracer
-#   DESCRIPTION:  Sets up binary with API key
-#-------------------------------------------------------------------------------
-setup_tracer() {
-    output=$(tracer setup "$API_KEY" 2>&1)
-    status_code=$?
-    if [ $status_code -ne 0 ]; then
-        printerror "Failed to configure Tracer binary. Output of tracer command:"
-
-        while IFS= read -r line; do
-            printindmsg "$line"
-        done <<<"$output"
-
-        exit 1
-    fi
-
-    printsucc "Tracer binary configured."
 }
 
 #-------------------------------------------------------------------------------
@@ -427,7 +416,6 @@ main() {
 
     print_header
     check_args "$@"
-    configure_tracer
     check_os
     check_prereqs
     get_package_name
@@ -436,7 +424,6 @@ main() {
     send_event "start_installation" "Start Tracer installation for key: ${API_KEY}"
     make_temp_dir
     download_tracer
-    setup_tracer
 
     printsucc "Tracer CLI has been successfully installed."
     send_event "finished_installation" "Successfully installed Tracer for key: ${API_KEY}"
