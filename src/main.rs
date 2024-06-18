@@ -2,14 +2,15 @@ mod process;
 
 extern crate daemonize;
 
+use anyhow::Result;
 use daemonize::Daemonize;
 use process::*;
 use std::fs::File;
 use tokio::time::Duration;
 
-const DEBOUNCE_SECS: u64 = 3;
+const DEFAULT_CONFIG_PATH: &str = ".config/tracer/tracer.toml";
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let daemonize = Daemonize::new()
         .pid_file("/tmp/tracerd.pid")
         .working_directory("/tmp")
@@ -25,18 +26,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tokio::main]
-async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut tr = TracerClient::new()?;
+async fn async_main() -> Result<()> {
+    let default_conf_path = format!("{}/{}", std::env::var("HOME")?, DEFAULT_CONFIG_PATH);
+
+    let config: ConfigFile = toml::from_str(&std::fs::read_to_string(
+        std::env::var("TRACER_CONFIG").unwrap_or(default_conf_path),
+    )?)?;
+
+    let interval = config.polling_interval_ms;
+
+    let mut tr = TracerClient::from_config(config)?;
 
     loop {
-        tr.remove_stale();
-        tr.poll_processes();
+        tr.remove_completed_processes().await?;
+        tr.poll_processes().await?;
 
         tr.send_global_stat().await?;
         // TODO: commented until backend would be able to handle it
         // tr.send_proc_stat().await?;
 
         tr.refresh();
-        tokio::time::sleep(Duration::from_secs(DEBOUNCE_SECS)).await;
+        tokio::time::sleep(Duration::from_millis(interval)).await;
     }
 }
