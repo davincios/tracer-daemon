@@ -409,6 +409,101 @@ send_event() {
 }
 
 #-------------------------------------------------------------------------------
+#          NAME:  configuration files including api key
+#   DESCRIPTION:  The confiugration file function
+#-------------------------------------------------------------------------------
+setup_tracer_configuration_file() {
+    # Define the content of the tracer.toml file
+    TRACER_TOML_CONTENT=$(
+        cat <<EOL
+polling_interval_ms = 1500
+api_key = "$API_KEY"
+targets = [
+    "STAR",
+    "bowtie2",
+    "bwa",
+    "salmon",
+    "hisat2",
+    "HOMER",
+    "samtools",
+    "bedtools",
+    "deeptools",
+    "MACS33",
+    "Genrich",
+    "TopHat",
+    "JAMM",
+    "fastqc",
+    "multiqc",
+    "fastp",
+    "PEAR",
+    "Trimmomatic",
+    "sra-toolkit",
+    "Picard",
+    "cutadapt",
+    "cellranger",
+    "STATsolo",
+    "scTE",
+    "scanpy",
+    "Seurat",
+    "LIGER",
+    "SC3",
+    "Louvain",
+    "Leiden",
+    "Garnett",
+    "Monocle",
+    "Harmony",
+    "PAGA",
+    "Palantir",
+    "velocity",
+    "CellPhoneDB",
+    "CellChat",
+    "NicheNet",
+    "FIt-SNE",
+    "umap",
+    "bbmap",
+    "cuffdiff",
+    "RNA-SeQC",
+    "RSeQC",
+    "Trimgalore",
+    "UCHIME",
+    "Erange",
+    "X-Mate",
+    "SpliceSeq",
+    "casper",
+    "DESeq",
+    "EdgeR",
+    "Kallisto",
+    "pairtools",
+    "HiCExplorer",
+    "GITAR",
+    "TADbit",
+    "Juicer",
+    "HiC-Pro",
+    "cooler",
+    "cooltools",
+    "runHiC"
+]
+EOL
+    )
+
+    # Create the destination directory if it doesn't exist
+    mkdir -p ~/.config/tracer
+
+    # Create the tracer.toml file with the specified content
+    echo "$TRACER_TOML_CONTENT" >tracer.toml
+
+    # Move the tracer.toml file to the destination directory
+    mv tracer.toml ~/.config/tracer/tracer.toml
+
+    # Confirm the file has been moved and created with the correct content
+    if [ $? -eq 0 ]; then
+        echo "tracer.toml has been successfully created and moved to ~/.config/tracer/tracer.toml"
+    else
+        echo "Failed to create and move tracer.toml"
+    fi
+}
+
+#-------------------------------------------------------------------------------
 #          NAME:  main
 #   DESCRIPTION:  The main function
 #-------------------------------------------------------------------------------
@@ -424,6 +519,7 @@ main() {
     send_event "start_installation" "Start Tracer installation for key: ${API_KEY}"
     make_temp_dir
     download_tracer
+    setup_tracer_configuration_file
 
     printsucc "Tracer CLI has been successfully installed."
     send_event "finished_installation" "Successfully installed Tracer for key: ${API_KEY}"
