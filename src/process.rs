@@ -111,8 +111,6 @@ impl TracerClient {
                     "tool_binary_path": p.exe(),
                 });
 
-                println!("aaa: {}", proc.name());
-
                 self.send_event(
                     EventStatus::ToolExecution,
                     &format!("[{}] Tool process: {}", Utc::now(), proc.name()),
