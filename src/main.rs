@@ -6,7 +6,6 @@ use anyhow::Result;
 use daemonize::Daemonize;
 use process::*;
 use std::fs::File;
-use tokio::time::Duration;
 
 const DEFAULT_CONFIG_PATH: &str = ".config/tracer/tracer.toml";
 
@@ -33,19 +32,13 @@ async fn async_main() -> Result<()> {
         std::env::var("TRACER_CONFIG").unwrap_or(default_conf_path),
     )?)?;
 
-    let interval = config.polling_interval_ms;
-
     let mut tr = TracerClient::from_config(config)?;
 
     loop {
         tr.remove_completed_processes().await?;
         tr.poll_processes().await?;
 
-        tr.send_global_stat().await?;
-        // TODO: commented until backend would be able to handle it
-        // tr.send_proc_stat().await?;
-
+        tr.send_metrics().await?;
         tr.refresh();
-        tokio::time::sleep(Duration::from_millis(interval)).await;
     }
 }

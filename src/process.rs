@@ -3,7 +3,7 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration, time::Instant};
 use sysinfo::{Disks, Pid, System};
 
 #[derive(Deserialize)]
@@ -19,26 +19,28 @@ pub struct TracerClient {
     seen: HashMap<Pid, String>,
     system: System,
     service_url: String,
+    last_sent: Instant,
+    interval: Duration,
 }
 
 #[derive(Debug)]
 pub enum EventStatus {
-    // NewRun,
     FinishedRun,
-    // RunStatusMessage,
     ToolExecution,
     MetricEvent,
+    // NewRun,
+    // RunStatusMessage,
 }
 
 impl EventStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            // EventStatus::NewRun => "new_run",
             EventStatus::FinishedRun => "finished_run",
-            // EventStatus::RunStatusMessage => "run_status_message",
             EventStatus::ToolExecution => "tool_execution",
-            // EventStatus::InstallationFinished => "installation_finished",
             EventStatus::MetricEvent => "metric_event",
+            // EventStatus::NewRun => "new_run",
+            // EventStatus::RunStatusMessage => "run_status_message",
+            // EventStatus::InstallationFinished => "installation_finished",
         }
     }
 }
@@ -53,6 +55,8 @@ impl TracerClient {
             targets: config.targets,
             seen: HashMap::new(),
             system: System::new_all(),
+            last_sent: Instant::now(),
+            interval: Duration::from_millis(config.polling_interval_ms),
             service_url,
         })
     }
@@ -149,8 +153,21 @@ impl TracerClient {
         Ok(())
     }
 
+    pub async fn send_metrics(&mut self) -> Result<()> {
+        if Instant::now() - self.last_sent >= self.interval {
+            self.send_global_stat().await?;
+
+            // TODO: commented until backend would be able to handle it
+            // self.send_proc_stat().await?;
+
+            self.last_sent = Instant::now();
+        }
+
+        Ok(())
+    }
+
     /// Sends current load of a system to the server
-    pub async fn send_global_stat(&self) -> Result<()> {
+    async fn send_global_stat(&self) -> Result<()> {
         let used_memory = self.system.used_memory();
         let total_memory = self.system.total_memory();
         let memory_utilization = (used_memory as f64 / total_memory as f64) * 100.0;
@@ -204,7 +221,7 @@ impl TracerClient {
     }
 
     // Sends current resource consumption of target processes to the server
-    // pub async fn send_proc_stat(&self) -> Result<()> {
+    // async fn send_proc_stat(&self) -> Result<()> {
     //     for (pid, proc) in self.seen.iter() {
     //         let Some(p) = self.system.process(*pid) else {
     //             eprintln!("[{}] Process({}) wasn't found", Utc::now(), proc);
