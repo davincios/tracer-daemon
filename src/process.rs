@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -13,10 +13,15 @@ pub struct ConfigFile {
     pub targets: Vec<String>,
 }
 
+struct Proc {
+    name: String,
+    start_time: DateTime<Utc>,
+}
+
 pub struct TracerClient {
     api_key: String,
     targets: Vec<String>,
-    seen: HashMap<Pid, String>,
+    seen: HashMap<Pid, Proc>,
     system: System,
     service_url: String,
     last_sent: Instant,
@@ -102,22 +107,30 @@ impl TracerClient {
     pub async fn poll_processes(&mut self) -> Result<()> {
         for (pid, proc) in self.system.processes().iter() {
             if !self.seen.contains_key(pid) && self.targets.contains(&proc.name().to_string()) {
-                self.seen.insert(*pid, proc.name().to_string());
+                self.seen.insert(
+                    *pid,
+                    Proc {
+                        name: proc.name().to_string(),
+                        start_time: Utc::now(),
+                    },
+                );
 
                 let Some(p) = self.system.process(*pid) else {
                     eprintln!("[{}] Process({}) wasn't found", Utc::now(), proc.name());
                     continue;
                 };
 
+                let start_time = Utc::now();
                 let properties = json!({
                     "tool_name": proc.name(),
                     "tool_pid": pid.to_string(),
                     "tool_binary_path": p.exe(),
+                    "start_timestamp": start_time.to_string(),
                 });
 
                 self.send_event(
                     EventStatus::ToolExecution,
-                    &format!("[{}] Tool process: {}", Utc::now(), proc.name()),
+                    &format!("[{}] Tool process: {}", start_time, proc.name()),
                     Some(properties),
                 )
                 .await?;
@@ -129,15 +142,16 @@ impl TracerClient {
 
     pub async fn remove_completed_processes(&mut self) -> Result<()> {
         let mut to_remove = vec![];
-        for (pid, p_name) in self.seen.iter() {
+        for (pid, proc) in self.seen.iter() {
             if !self.system.processes().contains_key(pid) {
+                let duration = (Utc::now() - proc.start_time).to_std()?.as_millis();
                 let attributes = json!({
-                    "execution_duration": "",
+                    "execution_duration": duration,
                 });
 
                 self.send_event(
                     EventStatus::FinishedRun,
-                    &format!("[{}] {} exited", Utc::now(), &p_name),
+                    &format!("[{}] {} exited", Utc::now(), &proc.name),
                     Some(attributes),
                 )
                 .await?;
