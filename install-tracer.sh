@@ -419,7 +419,7 @@ setup_tracer_configuration_file() {
 polling_interval_ms = 1500
 api_key = "$API_KEY"
 targets = [
-    "STAR",
+       "STAR",
     "bowtie2",
     "bwa",
     "salmon",
@@ -428,6 +428,8 @@ targets = [
     "samtools",
     "bedtools",
     "deeptools",
+    "macs3",
+    "plotCoverage",
     "MACS33",
     "Genrich",
     "TopHat",
