@@ -1,4 +1,4 @@
-polling_interval_ms = 3000
+polling_interval_ms = 1500
 api_key = "RbGK7dN6A2hlDn0uqEuVA"
 targets = [
     "STAR",
