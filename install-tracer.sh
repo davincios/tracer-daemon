@@ -413,91 +413,34 @@ send_event() {
 #   DESCRIPTION:  The confiugration file function
 #-------------------------------------------------------------------------------
 setup_tracer_configuration_file() {
-    # Define the content of the tracer.toml file
-    TRACER_TOML_CONTENT=$(
-        cat <<EOL
-polling_interval_ms = 1500
-api_key = "$API_KEY"
-targets = [
-       "STAR",
-    "bowtie2",
-    "bwa",
-    "salmon",
-    "hisat2",
-    "HOMER",
-    "samtools",
-    "bedtools",
-    "deeptools",
-    "macs3",
-    "plotCoverage",
-    "MACS33",
-    "Genrich",
-    "TopHat",
-    "JAMM",
-    "fastqc",
-    "multiqc",
-    "fastp",
-    "PEAR",
-    "Trimmomatic",
-    "sra-toolkit",
-    "Picard",
-    "cutadapt",
-    "cellranger",
-    "STATsolo",
-    "scTE",
-    "scanpy",
-    "Seurat",
-    "LIGER",
-    "SC3",
-    "Louvain",
-    "Leiden",
-    "Garnett",
-    "Monocle",
-    "Harmony",
-    "PAGA",
-    "Palantir",
-    "velocity",
-    "CellPhoneDB",
-    "CellChat",
-    "NicheNet",
-    "FIt-SNE",
-    "umap",
-    "bbmap",
-    "cuffdiff",
-    "RNA-SeQC",
-    "RSeQC",
-    "Trimgalore",
-    "UCHIME",
-    "Erange",
-    "X-Mate",
-    "SpliceSeq",
-    "casper",
-    "DESeq",
-    "EdgeR",
-    "Kallisto",
-    "pairtools",
-    "HiCExplorer",
-    "GITAR",
-    "TADbit",
-    "Juicer",
-    "HiC-Pro",
-    "cooler",
-    "cooltools",
-    "runHiC"
-]
-EOL
-    )
+    # URL of the tracer.toml file
+    TRACER_TOML_URL="https://raw.githubusercontent.com/davincios/tracer-daemon/main/tracer.toml"
+
+    # Fetch the tracer.toml content and store it in a temporary file
+    TEMP_FILE=$(mktemp)
+    curl -s $TRACER_TOML_URL -o $TEMP_FILE
+
+    # Check if the content was successfully fetched
+    if [ ! -s "$TEMP_FILE" ]; then
+        echo "Failed to fetch tracer.toml content from $TRACER_TOML_URL"
+        rm -f $TEMP_FILE
+        return 1
+    fi
+
 
     # Create the destination directory if it doesn't exist
     mkdir -p ~/.config/tracer
 
-    # Create the tracer.toml file with the specified content
-    echo "$TRACER_TOML_CONTENT" >tracer.toml
+    # Remove the first line and add the api_key line at the beginning
+    {
+        echo "api_key = \"$API_KEY\""
+        tail -n +2 "$TEMP_FILE"
+    } >~/.config/tracer/tracer.toml
 
-    # Move the tracer.toml file to the destination directory
-    mv tracer.toml ~/.config/tracer/tracer.toml
+    # Remove the temporary file
+    rm -f $TEMP_FILE
 
-    # Confirm the file has been moved and created with the correct content
+    # Confirm the file has been created with the correct content
     if [ $? -eq 0 ]; then
         echo "tracer.toml has been successfully created and moved to ~/.config/tracer/tracer.toml"
     else

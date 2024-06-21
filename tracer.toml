@@ -1,5 +1,5 @@
-polling_interval_ms = 1500
 api_key = "RbGK7dN6A2hlDn0uqEuVA"
+polling_interval_ms = 1500
 targets = [
     "STAR",
     "bowtie2",
@@ -66,4 +66,12 @@ targets = [
     "cooler",
     "cooltools",
     "runHiC",
+    "HTSlib",
+    "zlib",
+    "libbz2",
+    "liblzma",
+    "libcurl",
+    "libdeflate",
+    "ncurses",
+    "pthread",
 ]
