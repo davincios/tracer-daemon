@@ -7,8 +7,6 @@ use daemonize::Daemonize;
 use process::*;
 use std::fs::File;
 
-const DEFAULT_CONFIG_PATH: &str = ".config/tracer/tracer.toml";
-
 fn main() -> Result<()> {
     let daemonize = Daemonize::new()
         .pid_file("/tmp/tracerd.pid")

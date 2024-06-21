@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, time::Duration, time::Instant};
 use sysinfo::{Disks, Pid, System};
 
+pub const DEFAULT_CONFIG_PATH: &str = ".config/tracer/tracer.toml";
+
 #[derive(Deserialize)]
 pub struct ConfigFile {
     pub api_key: String,
@@ -259,5 +261,69 @@ impl TracerClient {
 
     pub fn refresh(&mut self) {
         self.system.refresh_all();
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn create_conf() -> ConfigFile {
+        toml::from_str(
+            &std::fs::read_to_string(
+                std::env::var("TRACER_CONFIG").unwrap_or("tracer.toml".to_string()),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn from_config() {
+        let tr = TracerClient::from_config(create_conf());
+        assert!(tr.is_ok())
+    }
+
+    #[tokio::test]
+    async fn tool_exec() {
+        let mut tr = TracerClient::from_config(create_conf()).unwrap();
+        tr.targets = vec!["sleep".to_string()];
+
+        let mut cmd = std::process::Command::new("sleep")
+            .arg("1")
+            .spawn()
+            .unwrap();
+
+        while tr.seen.len() <= 0 {
+            tr.refresh();
+            tr.poll_processes().await.unwrap();
+        }
+
+        cmd.wait().unwrap();
+
+        assert!(tr.seen.len() > 0)
+    }
+
+    #[tokio::test]
+    async fn tool_finish() {
+        let mut tr = TracerClient::from_config(create_conf()).unwrap();
+        tr.targets = vec!["sleep".to_string()];
+
+        let mut cmd = std::process::Command::new("sleep")
+            .arg("1")
+            .spawn()
+            .unwrap();
+
+        while tr.seen.len() <= 0 {
+            tr.refresh();
+            tr.poll_processes().await.unwrap();
+        }
+
+        cmd.wait().unwrap();
+        tr.refresh();
+
+        tr.remove_completed_processes().await.unwrap();
+
+        assert!(tr.seen.len() == 0)
     }
 }
