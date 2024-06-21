@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{collections::HashMap, time::Duration, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
 use sysinfo::{Disks, Pid, System};
 
 pub const DEFAULT_CONFIG_PATH: &str = ".config/tracer/tracer.toml";
@@ -21,11 +21,11 @@ struct Proc {
 }
 
 pub struct TracerClient {
-    api_key: String,
+    // api_key: String,
     targets: Vec<String>,
     seen: HashMap<Pid, Proc>,
     system: System,
-    service_url: String,
+    // service_url: String,
     last_sent: Instant,
     interval: Duration,
 }
@@ -52,58 +52,71 @@ impl EventStatus {
     }
 }
 
+pub async fn send_event(
+    process_status: EventStatus,
+    message: &str,
+    attributes: Option<Value>,
+) -> Result<()> {
+    let service_url = "https://app.tracer.bio/api/data-collector-api";
+    let api_key = "5-VKVp0rMD1PvNjvHC5hk";
+    let mut data = json!({
+        "logs": [{
+            "message": message,
+            "event_type": "process_status",
+            "process_type": "pipeline",
+            "process_status": process_status.as_str(),
+            "api_key": api_key,
+            "attributes": attributes // Add attributes if provided
+        }]
+    });
+
+    if let Some(props) = attributes {
+        data["logs"][0]["attributes"] = props;
+    }
+
+    let res = Client::new()
+        .post(service_url)
+        .header("x-api-key", api_key)
+        .header("Content-Type", "application/json")
+        .json(&data)
+        .send()
+        .await;
+
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Error while sending metrics: {}", e);
+            Ok(())
+        }
+    }
+}
+
+async fn send_event_with_arc(
+    status: EventStatus,
+    message: Arc<String>,
+    properties: Option<Value>,
+) -> Result<(), anyhow::Error> {
+    send_event(
+        status, &message, // Convert Arc<String> to &str
+        properties,
+    )
+    .await
+}
+
 impl TracerClient {
     pub fn from_config(config: ConfigFile) -> Result<Self> {
-        let service_url = std::env::var("TRACER_SERVICE_URL")
-            .unwrap_or_else(|_| "https://app.tracer.bio/api/data-collector-api".to_string());
+        // let service_url = std::env::var("TRACER_SERVICE_URL")
+        //     .unwrap_or_else(|_| "https://app.tracer.bio/api/data-collector-api".to_string());
 
         Ok(Self {
-            api_key: config.api_key,
+            // api_key: config.api_key,
             targets: config.targets,
             seen: HashMap::new(),
             system: System::new_all(),
             last_sent: Instant::now(),
             interval: Duration::from_millis(config.polling_interval_ms),
-            service_url,
+            // service_url,
         })
-    }
-
-    pub async fn send_event(
-        &self,
-        process_status: EventStatus,
-        message: &str,
-        attributes: Option<Value>,
-    ) -> Result<()> {
-        let mut data = json!({
-            "logs": [{
-                "message": message,
-                "event_type": "process_status",
-                "process_type": "pipeline",
-                "process_status": process_status.as_str(),
-                "api_key": self.api_key,
-                "attributes": attributes // Add attributes if provided
-            }]
-        });
-
-        if let Some(props) = attributes {
-            data["logs"][0]["attributes"] = props;
-        }
-
-        let res = Client::new()
-            .post(&self.service_url)
-            .header("x-api-key", &self.api_key)
-            .header("Content-Type", "application/json")
-            .json(&data)
-            .send()
-            .await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                eprintln!("Error while sending metrics: {}", e);
-                Ok(())
-            }
-        }
     }
 
     pub async fn poll_processes(&mut self) -> Result<()> {
@@ -130,12 +143,17 @@ impl TracerClient {
                     "start_timestamp": start_time.to_string(),
                 });
 
-                self.send_event(
+                let message = Arc::new(format!("[{}] Tool process: {}", start_time, proc.name()));
+                let properties = Arc::new(properties);
+                let properties_clone = Arc::clone(&properties);
+                let message_clone = Arc::clone(&message);
+
+                // Spawn the send_event call as a background task
+                tokio::spawn(send_event_with_arc(
                     EventStatus::ToolExecution,
-                    &format!("[{}] Tool process: {}", start_time, proc.name()),
-                    Some(properties),
-                )
-                .await?;
+                    message_clone,
+                    Some((*properties_clone).clone()), // Dereference and clone the Arc<serde_json::Value>
+                ));
             }
         }
 
@@ -151,7 +169,7 @@ impl TracerClient {
                     "execution_duration": duration,
                 });
 
-                self.send_event(
+                send_event(
                     EventStatus::FinishedRun,
                     &format!("[{}] {} exited", Utc::now(), &proc.name),
                     Some(attributes),
@@ -226,7 +244,7 @@ impl TracerClient {
             "disk_data": d_stats,
         });
 
-        self.send_event(
+        send_event(
             EventStatus::MetricEvent,
             &format!("[{}] System's resources metric", Utc::now()),
             Some(attributes),
