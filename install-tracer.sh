@@ -483,7 +483,15 @@ targets = [
     "HiC-Pro",
     "cooler",
     "cooltools",
-    "runHiC"
+    "runHiC",
+    "HTSlib",
+    "zlib",
+    "libbz2",
+    "liblzma",
+    "libcurl",
+    "libdeflate",
+    "ncurses",
+    "pthread"
 ]
 EOL
     )
