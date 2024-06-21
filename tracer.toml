@@ -1,4 +1,4 @@
-polling_interval_ms = 3000
+polling_interval_ms = 1500
 api_key = "RbGK7dN6A2hlDn0uqEuVA"
 targets = [
     "STAR",
@@ -10,6 +10,8 @@ targets = [
     "samtools",
     "bedtools",
     "deeptools",
+    "macs3",
+    "plotCoverage",
     "MACS33",
     "Genrich",
     "TopHat",
@@ -63,5 +65,5 @@ targets = [
     "HiC-Pro",
     "cooler",
     "cooltools",
-    "runHiC"
+    "runHiC",
 ]
