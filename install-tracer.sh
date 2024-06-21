@@ -416,23 +416,28 @@ setup_tracer_configuration_file() {
     # URL of the tracer.toml file
     TRACER_TOML_URL="https://raw.githubusercontent.com/davincios/tracer-daemon/main/tracer.toml"
 
-    # Fetch the tracer.toml content
-    TRACER_TOML_CONTENT=$(curl -s $TRACER_TOML_URL)
+    # Fetch the tracer.toml content and store it in a temporary file
+    TEMP_FILE=$(mktemp)
+    curl -s $TRACER_TOML_URL -o $TEMP_FILE
 
     # Check if the content was successfully fetched
-    if [ -z "$TRACER_TOML_CONTENT" ]; then
+    if [ ! -s "$TEMP_FILE" ]; then
         echo "Failed to fetch tracer.toml content from $TRACER_TOML_URL"
+        rm -f $TEMP_FILE
         return 1
     fi
-
-    # Replace the api_key line with the provided API_KEY
-    TRACER_TOML_CONTENT=$(echo "$TRACER_TOML_CONTENT" | sed "s/api_key = \".*\"/api_key = \"$API_KEY\"/")
 
     # Create the destination directory if it doesn't exist
     mkdir -p ~/.config/tracer
 
-    # Create the tracer.toml file with the modified content
-    echo "$TRACER_TOML_CONTENT" >~/.config/tracer/tracer.toml
+    # Remove the first line and add the api_key line at the beginning
+    {
+        echo "api_key = \"$API_KEY\""
+        tail -n +2 "$TEMP_FILE"
+    } >~/.config/tracer/tracer.toml
+
+    # Remove the temporary file
+    rm -f $TEMP_FILE
 
     # Confirm the file has been created with the correct content
     if [ $? -eq 0 ]; then
