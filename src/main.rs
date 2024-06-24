@@ -31,12 +31,12 @@ async fn async_main() -> Result<()> {
     )?)?;
 
     let mut tr = TracerClient::from_config(config)?;
-
+    // timeout is removed completely, it goes as fast as it can
     loop {
         tr.remove_completed_processes().await?;
         tr.poll_processes().await?;
 
-        tr.send_metrics().await?; // this might take too long?
+        // tr.send_metrics().await?; // this might take too long?
         tr.refresh();
     }
 }
