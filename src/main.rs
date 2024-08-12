@@ -6,6 +6,7 @@ mod event_recorder;
 mod events;
 mod file_watcher;
 mod http_client;
+mod load_ebpf;
 mod metrics;
 mod process_watcher;
 mod submit_batched_data;
@@ -43,6 +44,8 @@ const REPO_NAME: &str = "tracer-daemon";
 
 pub fn start_daemon() -> Result<()> {
     ConfigManager::test_service_config_sync()?;
+
+    load_ebpf::initialize().context("failed to initialize ebpf watcher")?;
 
     let daemon = Daemonize::new();
     daemon
