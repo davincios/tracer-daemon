@@ -6,13 +6,13 @@ use aya_log_ebpf::info;
 
 #[tracepoint]
 pub fn watch(ctx: TracePointContext) -> u32 {
-    match try_watch(ctx) {
+    match try_tracerd(ctx) {
         Ok(ret) => ret,
         Err(ret) => ret,
     }
 }
 
-fn try_watch(ctx: TracePointContext) -> Result<u32, u32> {
+fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
     info!(&ctx, "tracepoint sys_enter_execve called");
     Ok(0)
 }

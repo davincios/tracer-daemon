@@ -33,6 +33,5 @@ tokio-stream = "0.1.15"
 futures-util = "0.3.30"
 aya = "0.12"
 aya-log = "0.2"
-
-[dev-dependencies]
 env_logger = "0.9"
+libc = "0.2"

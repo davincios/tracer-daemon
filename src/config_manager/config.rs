@@ -53,6 +53,10 @@ pub struct ConfigManager;
 
 impl ConfigManager {
     fn get_config_path() -> Option<PathBuf> {
+        if let Ok(config_path) = std::env::var("TRACER_CONFIG_PATH") {
+            return Some(PathBuf::from(config_path));
+        }
+
         let path = homedir::get_my_home();
 
         match path {

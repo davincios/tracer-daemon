@@ -18,8 +18,10 @@ use cli::process_cli;
 use daemon_communication::server::run_server;
 use daemonize::Daemonize;
 use events::send_start_run_event;
+use log::info;
 use std::borrow::BorrowMut;
 use syslog::run_lines_read_thread;
+use tokio::signal;
 
 use std::fs::File;
 use std::sync::Arc;
@@ -30,12 +32,12 @@ use tokio_util::sync::CancellationToken;
 use crate::config_manager::ConfigManager;
 use crate::tracer_client::TracerClient;
 
-const PID_FILE: &str = "/tmp/tracerd.pid";
-const WORKING_DIR: &str = "/tmp";
-const STDOUT_FILE: &str = "/tmp/tracerd.out";
-const STDERR_FILE: &str = "/tmp/tracerd.err";
-const SOCKET_PATH: &str = "/tmp/tracerd.sock";
-const FILE_CACHE_DIR: &str = "/tmp/tracerd_cache";
+const PID_FILE: &str = "./tracerd.pid";
+const WORKING_DIR: &str = "./";
+const STDOUT_FILE: &str = "./tracerd.out";
+const STDERR_FILE: &str = "./tracerd.err";
+const SOCKET_PATH: &str = "./tracerd.sock";
+const FILE_CACHE_DIR: &str = "./tracerd_cache";
 
 const SYSLOG_FILE: &str = "/var/log/syslog";
 
@@ -45,12 +47,11 @@ const REPO_NAME: &str = "tracer-daemon";
 pub fn start_daemon() -> Result<()> {
     ConfigManager::test_service_config_sync()?;
 
-    load_ebpf::initialize().context("failed to initialize ebpf watcher")?;
-
     let daemon = Daemonize::new();
     daemon
         .pid_file(PID_FILE)
         .working_directory(WORKING_DIR)
+        .user("root")
         .stdout(
             File::create(STDOUT_FILE)
                 .context("Failed to create stdout file")
@@ -66,6 +67,7 @@ pub fn start_daemon() -> Result<()> {
 }
 
 pub fn main() -> Result<()> {
+    env_logger::init();
     process_cli()
 }
 
@@ -86,6 +88,20 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
         cancellation_token.clone(),
         config.clone(),
     ));
+
+    let cloned_cancel = cancellation_token.clone();
+    tokio::spawn(async move {
+        info!("Waiting for Ctrl-C...");
+        let _ = signal::ctrl_c().await;
+        info!("Exiting...");
+        cloned_cancel.cancel()
+    });
+
+    info!("loading ebpf");
+
+    let bpf = load_ebpf::initialize().context("failed to initialize ebpf watcher")?;
+
+    info!("loaded ebpf");
 
     let lines_task = tokio::spawn(run_lines_read_thread(
         SYSLOG_FILE,
@@ -122,6 +138,8 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
     }
 
     lines_task.abort();
+
+    info!("shutting down: {:?}", bpf);
 
     Ok(())
 }
