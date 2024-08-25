@@ -99,7 +99,8 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
 
     info!("loading ebpf");
 
-    let bpf = load_ebpf::initialize().context("failed to initialize ebpf watcher")?;
+    let cloned_cancel = cancellation_token.clone();
+    let ebpf_task = tokio::spawn(load_ebpf::initialize(cloned_cancel));
 
     info!("loaded ebpf");
 
@@ -138,6 +139,8 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
     }
 
     lines_task.abort();
+
+    let bpf = ebpf_task.await??;
 
     info!("shutting down: {:?}", bpf);
 
