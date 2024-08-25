@@ -4,7 +4,7 @@
 use aya_ebpf::{
     helpers::bpf_probe_read_user_str_bytes,
     macros::{map, tracepoint},
-    maps::{HashMap, PerfEventArray, Queue},
+    maps::{HashMap, PerfEventArray},
     programs::TracePointContext,
 };
 use aya_log_ebpf::info;
@@ -27,18 +27,12 @@ pub struct ProcessData {
 #[map(name = "EVENTS")]
 static mut EVENTS: PerfEventArray<ProcessData> = PerfEventArray::with_max_entries(1024, 0);
 
-#[map]
-static PROCESS_EVENTS: Queue<ProcessData> = Queue::<ProcessData>::with_max_entries(1024, 0);
-
 #[map] //
 static WATCHLIST: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(1024, 0);
 
 #[tracepoint]
 pub fn watch(ctx: TracePointContext) -> u32 {
-    match try_tracerd(ctx) {
-        Ok(ret) => ret,
-        Err(ret) => ret,
-    }
+    try_tracerd(ctx).unwrap_or_default()
 }
 
 fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
@@ -63,6 +57,32 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
             .len()
     };
 
+    let mut found: i32 = -1;
+    let mut index = len;
+    while index > 0 {
+        index -= 1;
+
+        let val = filename[index];
+        if val == b'/' || val == b'\\' {
+            found = index as i32;
+            break;
+        }
+    }
+
+    if found == -1 {
+        return Ok(0);
+    }
+
+    let found = found as usize;
+
+    if found >= len - 2 {
+        return Ok(0);
+    }
+
+    let start_ptr = unsafe { filename.as_ptr().add(found + 1) };
+    let binary_slice = unsafe { core::slice::from_raw_parts(start_ptr, len - found - 1) };
+    let binary_name = unsafe { core::str::from_utf8_unchecked(binary_slice) };
+
     info!(&ctx, "read kernel string");
 
     let data = ProcessData {
@@ -76,13 +96,7 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
 
     // PROCESS_EVENTS.push(&data, 0).map_err(|_| 3u32)?;
 
-    unsafe {
-        info!(
-            &ctx,
-            "execve called with filename: {}",
-            core::str::from_utf8_unchecked(&filename)
-        );
-    }
+    info!(&ctx, "execve called with filename: {}", binary_name);
 
     Ok(0)
 }
