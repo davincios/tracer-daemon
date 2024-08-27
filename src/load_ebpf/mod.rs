@@ -1,9 +1,12 @@
+use std::hash::{Hash, Hasher};
+
 use anyhow::Result;
-use aya::maps::AsyncPerfEventArray;
+use aya::maps::{AsyncPerfEventArray, HashMap};
 use aya::programs::TracePoint;
 use aya::util::online_cpus;
 use aya::{include_bytes_aligned, Bpf, Pod};
 use aya_log::BpfLogger;
+use fnv::FnvHasher;
 use log::{debug, info, warn};
 use tokio_util::bytes::BytesMut;
 use tokio_util::sync::CancellationToken;
@@ -55,6 +58,19 @@ pub async fn initialize(cancellation: CancellationToken) -> Result<Bpf> {
     info!("attached program...");
 
     let mut perf_array = AsyncPerfEventArray::try_from(bpf.take_map("EVENTS").unwrap())?;
+
+    let allowed = vec!["git", "bash", "alacritty"];
+    let mut allowlist: HashMap<_, u64, u8> = HashMap::try_from(bpf.take_map("WATCHLIST").unwrap())?;
+
+    for val in allowed {
+        let mut hasher = FnvHasher::default();
+        for v in val.as_bytes().iter().rev() {
+            v.hash(&mut hasher);
+        }
+
+        let hashed = hasher.finish();
+        allowlist.insert(hashed, 1, 0)?;
+    }
 
     let cpu_len = online_cpus()?.len();
     for cpu_id in online_cpus()? {

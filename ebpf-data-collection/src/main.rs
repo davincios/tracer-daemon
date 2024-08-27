@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::hash::{Hash, Hasher};
+
 use aya_ebpf::{
     helpers::bpf_probe_read_user_str_bytes,
     macros::{map, tracepoint},
@@ -8,6 +10,7 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 use aya_log_ebpf::info;
+use fnv::FnvHasher;
 
 #[repr(C)]
 struct ExecveArgs {
@@ -28,7 +31,7 @@ pub struct ProcessData {
 static mut EVENTS: PerfEventArray<ProcessData> = PerfEventArray::with_max_entries(1024, 0);
 
 #[map] //
-static WATCHLIST: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(1024, 0);
+static WATCHLIST: HashMap<u64, u8> = HashMap::<u64, u8>::with_max_entries(1024, 0);
 
 #[tracepoint]
 pub fn watch(ctx: TracePointContext) -> u32 {
@@ -57,16 +60,20 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
             .len()
     };
 
+    let mut hasher = FnvHasher::default();
     let mut found: i32 = -1;
     let mut index = len;
     while index > 0 {
         index -= 1;
 
         let val = filename[index];
+
         if val == b'/' || val == b'\\' {
             found = index as i32;
             break;
         }
+
+        val.hash(&mut hasher);
     }
 
     if found == -1 {
@@ -79,11 +86,14 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
         return Ok(0);
     }
 
-    let start_ptr = unsafe { filename.as_ptr().add(found + 1) };
-    let binary_slice = unsafe { core::slice::from_raw_parts(start_ptr, len - found - 1) };
-    let binary_name = unsafe { core::str::from_utf8_unchecked(binary_slice) };
+    let hashed = hasher.finish();
 
-    info!(&ctx, "read kernel string");
+    unsafe {
+        if WATCHLIST.get(&hashed).is_none() {
+            // not in the watch list, exit early
+            return Ok(0);
+        }
+    }
 
     let data = ProcessData {
         comm: filename,
@@ -94,7 +104,14 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
         EVENTS.output(&ctx, &data, 0);
     }
 
-    // PROCESS_EVENTS.push(&data, 0).map_err(|_| 3u32)?;
+    // everything after is extra, can be removed
+
+    let start_ptr = unsafe { filename.as_ptr().add(found + 1) };
+    let binary_slice_len = len - found - 1;
+    let binary_slice = unsafe { core::slice::from_raw_parts(start_ptr, binary_slice_len) };
+    let binary_name = unsafe { core::str::from_utf8_unchecked(binary_slice) };
+
+    info!(&ctx, "read kernel string");
 
     info!(&ctx, "execve called with filename: {}", binary_name);
 

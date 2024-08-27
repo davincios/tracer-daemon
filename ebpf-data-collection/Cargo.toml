@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 aya-ebpf = "0.1.0"
 aya-log-ebpf = "0.1.0"
+fnv = { version = "1.0.3", default-features = false }
 
 [[bin]]
 name = "ebpf-data-collection"
