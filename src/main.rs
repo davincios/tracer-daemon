@@ -100,7 +100,7 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
     info!("loading ebpf");
 
     let cloned_cancel = cancellation_token.clone();
-    let ebpf_task = tokio::spawn(load_ebpf::initialize(cloned_cancel));
+    let ebpf_task = tokio::spawn(load_ebpf::initialize(cloned_cancel, config.clone()));
 
     info!("loaded ebpf");
 

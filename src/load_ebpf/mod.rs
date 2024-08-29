@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use anyhow::Result;
 use aya::maps::{AsyncPerfEventArray, HashMap};
@@ -8,8 +9,12 @@ use aya::{include_bytes_aligned, Bpf, Pod};
 use aya_log::BpfLogger;
 use fnv::FnvHasher;
 use log::{debug, info, warn};
+use tokio::sync::RwLock;
 use tokio_util::bytes::BytesMut;
 use tokio_util::sync::CancellationToken;
+
+use crate::config_manager;
+use crate::config_manager::target_process::target_matching::TargetMatch;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -20,7 +25,10 @@ pub struct ProcessData {
 
 unsafe impl Pod for ProcessData {}
 
-pub async fn initialize(cancellation: CancellationToken) -> Result<Bpf> {
+pub async fn initialize(
+    cancellation: CancellationToken,
+    config: Arc<RwLock<config_manager::Config>>,
+) -> Result<Bpf> {
     info!("starting...");
 
     // Bump the memlock rlimit. This is needed for older kernels that don't use the
@@ -59,7 +67,25 @@ pub async fn initialize(cancellation: CancellationToken) -> Result<Bpf> {
 
     let mut perf_array = AsyncPerfEventArray::try_from(bpf.take_map("EVENTS").unwrap())?;
 
-    let allowed = vec!["git", "bash", "alacritty"];
+    let allowed = {
+        let config = config.read().await;
+
+        config
+            .targets
+            .iter()
+            .map(|t| match &t.match_type {
+                TargetMatch::ProcessName(name) => name.clone(),
+                TargetMatch::ShortLivedProcessExecutable(name) => name.clone(),
+                TargetMatch::CommandContains(c) => c.process_name.clone().unwrap(),
+                TargetMatch::BinPathStartsWith(name) => name.clone(),
+            })
+            .collect::<Vec<String>>()
+    };
+
+    allowed.iter().for_each(|n| {
+        info!("tracking: {}", n);
+    });
+
     let mut allowlist: HashMap<_, u64, u8> = HashMap::try_from(bpf.take_map("WATCHLIST").unwrap())?;
 
     for val in allowed {
