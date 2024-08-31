@@ -3,7 +3,7 @@ use crate::config_manager::target_process::Target;
 use crate::config_manager::target_process::TargetMatchable;
 use crate::event_recorder::EventRecorder;
 use crate::event_recorder::EventType;
-use crate::file_watcher::FileWatcher;
+use crate::file_system_watcher::FileSystemWatcher;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -107,7 +107,7 @@ impl ProcessWatcher {
         &mut self,
         system: &mut System,
         event_logger: &mut EventRecorder,
-        file_watcher: &FileWatcher,
+        file_watcher: &FileSystemWatcher,
     ) -> Result<()> {
         for (pid, proc) in system.processes().iter() {
             if !self.seen.contains_key(pid) {
@@ -272,7 +272,7 @@ impl ProcessWatcher {
         system: &System,
         targets: Vec<Target>,
         event_logger: &mut EventRecorder,
-        file_watcher: &FileWatcher,
+        file_watcher: &FileSystemWatcher,
     ) -> Result<()> {
         self.build_process_trees(system.processes());
         let nodes: &HashMap<Pid, ProcessTreeNode> = &self.process_tree;
@@ -422,7 +422,7 @@ impl ProcessWatcher {
         system: &System,
         event_logger: &mut EventRecorder,
         target: Option<&Target>,
-        file_watcher: &FileWatcher,
+        file_watcher: &FileSystemWatcher,
     ) -> Result<()> {
         self.seen.insert(
             pid,

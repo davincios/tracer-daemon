@@ -10,7 +10,7 @@ use predicates::str::RegexPredicate;
 use predicates::Predicate;
 
 use crate::debug_log::Logger;
-use crate::upload::upload_from_file_path;
+use crate::s3_upload::upload_from_file_path;
 
 #[derive(Debug, Clone)]
 pub struct WatchedFileInfo {
@@ -30,7 +30,7 @@ pub struct FileInfo {
     pub last_update: DateTime<Utc>,
 }
 
-pub struct FileWatcher {
+pub struct FileSystemWatcher {
     watched_files: HashMap<String, WatchedFileInfo>,
     all_files: HashMap<String, FileInfo>,
 }
@@ -94,7 +94,7 @@ lazy_static! {
     ];
 }
 
-impl FileWatcher {
+impl FileSystemWatcher {
     pub fn new() -> Self {
         Self {
             watched_files: HashMap::new(),
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_check_if_file_to_update_no_changes() {
         let now: DateTime<Utc> = Utc::now();
-        let file_watcher = FileWatcher::new();
+        let file_watcher = FileSystemWatcher::new();
         let old_file_info = WatchedFileInfo {
             path: "/tmp/test.txt".to_string(),
             size: 50,
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_check_if_file_to_update_new_file() {
         let now: DateTime<Utc> = Utc::now();
-        let file_watcher = FileWatcher::new();
+        let file_watcher = FileSystemWatcher::new();
         let old_file_info = WatchedFileInfo {
             path: "/tmp/test.txt".to_string(),
             size: 50,

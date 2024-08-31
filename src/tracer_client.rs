@@ -1,14 +1,19 @@
+use crate::config_manager::{INTERCEPTOR_STDERR_FILE, INTERCEPTOR_STDOUT_FILE};
+use crate::errors::{ErrorRecognition, SystemStateSnapshot, ERROR_TEMPLATES};
 // src/tracer_client.rs
 use crate::event_recorder::{EventRecorder, EventType};
 use crate::events::{send_end_run_event, send_start_run_event};
-use crate::file_watcher::FileWatcher;
+use crate::file_content_watcher::stderr_patterns::STDERR_PATTERNS;
+use crate::file_content_watcher::stdout_patterns::STDOUT_PATTERNS;
+use crate::file_content_watcher::syslog_patterns::SYSLOG_PATTERNS;
+use crate::file_content_watcher::FileContentWatcher;
+use crate::file_system_watcher::FileSystemWatcher;
 use crate::metrics::SystemMetricsCollector;
 use crate::process_watcher::ProcessWatcher;
-use crate::stdout::StdoutWatcher;
 use crate::submit_batched_data::submit_batched_data;
-use crate::syslog::SyslogWatcher;
-use crate::FILE_CACHE_DIR;
+use crate::system_state_manager::SystemStateManager;
 use crate::{config_manager::Config, process_watcher::ShortLivedProcessLog};
+use crate::{FILE_CACHE_DIR, SYSLOG_FILE};
 use anyhow::Result;
 use chrono::{DateTime, TimeDelta, Utc};
 use std::ops::Sub;
@@ -41,10 +46,11 @@ pub struct TracerClient {
     last_file_size_change_time_delta: TimeDelta,
     pub logs: EventRecorder,
     process_watcher: ProcessWatcher,
-    syslog_watcher: SyslogWatcher,
-    stdout_watcher: StdoutWatcher,
     metrics_collector: SystemMetricsCollector,
-    file_watcher: FileWatcher,
+    file_system_watcher: FileSystemWatcher,
+    file_content_watcher: FileContentWatcher,
+    error_recognizer: ErrorRecognition<'static>,
+    system_state_manager: SystemStateManager,
     workflow_directory: String,
     api_key: String,
     service_url: String,
@@ -61,7 +67,7 @@ impl TracerClient {
         println!("Initializing TracerClient with API Key: {}", config.api_key);
         println!("Service URL: {}", service_url);
 
-        let file_watcher = FileWatcher::new();
+        let file_watcher = FileSystemWatcher::new();
 
         file_watcher.prepare_cache_directory(FILE_CACHE_DIR)?;
 
@@ -81,17 +87,18 @@ impl TracerClient {
             system: System::new_all(),
             last_sent: None,
             current_run: None,
-            syslog_watcher: SyslogWatcher::new(),
-            stdout_watcher: StdoutWatcher::new(),
             // Sub mannagers
             logs: EventRecorder::new(),
-            file_watcher,
+            file_system_watcher: file_watcher,
             workflow_directory,
             syslog_lines_buffer: Arc::new(RwLock::new(Vec::new())),
             stdout_lines_buffer: Arc::new(RwLock::new(Vec::new())),
             stderr_lines_buffer: Arc::new(RwLock::new(Vec::new())),
             process_watcher: ProcessWatcher::new(config.targets),
             metrics_collector: SystemMetricsCollector::new(),
+            file_content_watcher: FileContentWatcher::new(),
+            error_recognizer: ErrorRecognition::new(&ERROR_TEMPLATES),
+            system_state_manager: SystemStateManager::new(),
         })
     }
 
@@ -100,6 +107,28 @@ impl TracerClient {
         self.service_url.clone_from(&config.service_url);
         self.interval = Duration::from_millis(config.process_polling_interval_ms);
         self.process_watcher.reload_targets(config.targets.clone());
+    }
+
+    pub fn setup_file_content_watcher(&mut self) -> tokio::task::JoinHandle<()> {
+        self.file_content_watcher.add_entry(
+            SYSLOG_FILE.into(),
+            &SYSLOG_PATTERNS,
+            self.syslog_lines_buffer.clone(),
+        );
+
+        self.file_content_watcher.add_entry(
+            INTERCEPTOR_STDOUT_FILE.into(),
+            &STDOUT_PATTERNS,
+            self.stdout_lines_buffer.clone(),
+        );
+
+        self.file_content_watcher.add_entry(
+            INTERCEPTOR_STDERR_FILE.into(),
+            &STDERR_PATTERNS,
+            self.stderr_lines_buffer.clone(),
+        );
+
+        self.file_content_watcher.setup_thread()
     }
 
     pub fn fill_logs_with_short_lived_process(
@@ -209,7 +238,7 @@ impl TracerClient {
         self.process_watcher.poll_processes(
             &mut self.system,
             &mut self.logs,
-            &self.file_watcher,
+            &self.file_system_watcher,
         )?;
 
         if self.current_run.is_some() && !self.process_watcher.is_empty() {
@@ -234,7 +263,7 @@ impl TracerClient {
     }
 
     pub async fn poll_files(&mut self) -> Result<()> {
-        self.file_watcher
+        self.file_system_watcher
             .poll_files(
                 &self.service_url,
                 &self.api_key,
@@ -246,26 +275,36 @@ impl TracerClient {
         Ok(())
     }
 
-    pub async fn poll_syslog(&mut self) -> Result<()> {
-        self.syslog_watcher
-            .poll_syslog(
-                self.get_syslog_lines_buffer(),
-                &mut self.system,
-                &mut self.logs,
-            )
-            .await
-    }
+    pub async fn poll_file_content_watcher_streams(&mut self) -> Result<()> {
+        FileContentWatcher::send_lines_to_endpoint(
+            &format!("{}/stdout-capture", self.service_url),
+            &self.api_key,
+            &self.stdout_lines_buffer,
+            false,
+        )
+        .await?;
 
-    pub async fn poll_stdout_stderr(&mut self) -> Result<()> {
-        let (stdout_lines_buffer, stderr_lines_buffer) = self.get_stdout_stderr_lines_buffer();
+        FileContentWatcher::send_lines_to_endpoint(
+            &format!("{}/stdout-capture", self.service_url),
+            &self.api_key,
+            &self.stderr_lines_buffer,
+            true,
+        )
+        .await?;
 
-        self.stdout_watcher
-            .poll_stdout(&self.service_url, &self.api_key, stdout_lines_buffer, false)
+        self.file_content_watcher
+            .poll_files_and_clear_buffers()
             .await?;
 
-        self.stdout_watcher
-            .poll_stdout(&self.service_url, &self.api_key, stderr_lines_buffer, true)
-            .await
+        Ok(())
+    }
+
+    pub async fn poll_errors(&mut self) -> Result<()> {
+        let system_state: SystemStateSnapshot<'_> = self.system_state_manager.get_current_state();
+        self.error_recognizer
+            .recognize_and_record_errors(&mut self.logs, system_state);
+
+        Ok(())
     }
 
     pub fn refresh_sysinfo(&mut self) {

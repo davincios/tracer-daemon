@@ -14,8 +14,8 @@ use crate::{
     debug_log::Logger,
     events::{send_alert_event, send_log_event, send_update_tags_event},
     process_watcher::ShortLivedProcessLog,
+    s3_upload::upload_from_file_path,
     tracer_client::TracerClient,
-    upload::upload_from_file_path,
 };
 
 type ProcessOutput<'a> =

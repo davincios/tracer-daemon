@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::debug_log::Logger;
-use crate::upload::upload_to_signed_url::upload_file_to_signed_url_s3;
+use crate::s3_upload::upload_to_signed_url::upload_file_to_signed_url_s3;
 
 pub async fn upload_from_file_path(
     service_url: &str,

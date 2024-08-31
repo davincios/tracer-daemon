@@ -2,24 +2,23 @@ mod cli;
 mod config_manager;
 mod daemon_communication;
 mod debug_log;
+mod errors;
 mod event_recorder;
 mod events;
-mod file_watcher;
+mod file_content_watcher;
+mod file_system_watcher;
 mod http_client;
 mod metrics;
 mod process_watcher;
-mod stdout;
+mod s3_upload;
 mod submit_batched_data;
-mod syslog;
+mod system_state_manager;
 mod tracer_client;
-mod upload;
 use anyhow::{Context, Ok, Result};
 use cli::process_cli;
-use config_manager::{INTERCEPTOR_STDERR_FILE, INTERCEPTOR_STDOUT_FILE};
 use daemon_communication::server::run_server;
 use daemonize::Daemonize;
 use std::borrow::BorrowMut;
-use syslog::run_syslog_lines_read_thread;
 
 use std::fs::File;
 use std::sync::Arc;
@@ -73,7 +72,7 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
     let client = TracerClient::new(raw_config.clone(), workflow_directory_path)
         .await
         .context("Failed to create TracerClient")?;
-    let tracer_client = Arc::new(Mutex::new(client));
+    let tracer_client: Arc<Mutex<TracerClient>> = Arc::new(Mutex::new(client));
     let config: Arc<RwLock<config_manager::Config>> = Arc::new(RwLock::new(raw_config));
 
     let cancellation_token = CancellationToken::new();
@@ -85,16 +84,11 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
         config.clone(),
     ));
 
-    let syslog_lines_task = tokio::spawn(run_syslog_lines_read_thread(
-        SYSLOG_FILE,
-        tracer_client.lock().await.get_syslog_lines_buffer(),
-    ));
-
-    let stdout_lines_task = tokio::spawn(stdout::run_stdout_lines_read_thread(
-        INTERCEPTOR_STDOUT_FILE,
-        INTERCEPTOR_STDERR_FILE,
-        tracer_client.lock().await.get_stdout_stderr_lines_buffer(),
-    ));
+    let file_content_watcher_task = tracer_client
+        .lock()
+        .await
+        .borrow_mut()
+        .setup_file_content_watcher();
 
     tracer_client
         .lock()
@@ -128,8 +122,7 @@ pub async fn run(workflow_directory_path: String) -> Result<()> {
         tracer_client.lock().await.borrow_mut().poll_files().await?;
     }
 
-    syslog_lines_task.abort();
-    stdout_lines_task.abort();
+    file_content_watcher_task.abort();
 
     Ok(())
 }
@@ -139,8 +132,7 @@ pub async fn monitor_processes_with_tracer_client(tracer_client: &mut TracerClie
     tracer_client.poll_processes()?;
     // tracer_client.run_cleanup().await?;
     tracer_client.poll_process_metrics().await?;
-    tracer_client.poll_syslog().await?;
-    tracer_client.poll_stdout_stderr().await?;
+    tracer_client.poll_file_content_watcher_streams().await?;
     tracer_client.refresh_sysinfo();
     tracer_client.reset_just_started_process_flag();
     Ok(())
