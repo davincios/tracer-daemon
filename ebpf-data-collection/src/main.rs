@@ -4,7 +4,7 @@
 use core::hash::{Hash, Hasher};
 
 use aya_ebpf::{
-    helpers::bpf_probe_read_user_str_bytes,
+    helpers::{bpf_probe_read_user, bpf_probe_read_user_str_bytes},
     macros::{map, tracepoint},
     maps::{HashMap, PerfEventArray},
     programs::TracePointContext,
@@ -14,16 +14,18 @@ use fnv::FnvHasher;
 
 #[repr(C)]
 struct ExecveArgs {
-    unused: u64,
-    unused2: u64,
-    filename_ptr: u64,
+    unused: i32, // common_type(offset: 0, size: 2, signed: 0) + common_flags(offset: 2, size: 1, signed: 0) + common_preempt_count
+    pid: i32,    // common_pid;	offset:4;	size:4;	signed:1;
+    unused2: u64, // int __syscall_nr;	offset:8;	size:4;	signed:1; + extra size to get next field to offet 16
+    filename_ptr: u64, // const char * filename;	offset:16;	size:8;	signed:0;
     argv_ptr: u64,
     envp_ptr: u64,
 }
 
 #[repr(C)]
 pub struct ProcessData {
-    pub comm: [u8; 128],
+    pub comm: [u8; 64],
+    pub args: [u8; 128],
     pub len: usize,
 }
 
@@ -45,7 +47,7 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
     );
 
     let args: ExecveArgs = unsafe { ctx.read_at(0).map_err(|_| 2u32)? };
-    let mut filename = [0u8; 128];
+    let mut filename = [0u8; 64];
     let filename_ptr = args.filename_ptr as *const u8;
 
     info!(&ctx, "mapped exec args");
@@ -95,8 +97,40 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
         }
     }
 
+    let argv_ptr = args.argv_ptr as *const *const u8;
+    let mut arg_index: usize = 0;
+    let mut arg_list = [0u8; 128];
+    for i in 0..8 {
+        let len = unsafe {
+            let arg_ptr = bpf_probe_read_user(argv_ptr.add(i as usize)).unwrap();
+            if arg_ptr.is_null() {
+                break;
+            }
+
+            bpf_probe_read_user_str_bytes(arg_ptr, &mut arg_list[arg_index..])
+                .map_err(|er| {
+                    info!(&ctx, "failed to read kernel arg string: {}", er);
+
+                    3u32
+                })?
+                .len()
+        };
+
+        arg_index += len;
+
+        if arg_index >= arg_list.len() - 1 {
+            break;
+        }
+
+        if i < 7 {
+            arg_list[arg_index] = b' ';
+            arg_index += 1;
+        }
+    }
+
     let data = ProcessData {
         comm: filename,
+        args: arg_list,
         len,
     };
 

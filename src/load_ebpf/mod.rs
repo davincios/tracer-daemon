@@ -19,7 +19,8 @@ use crate::config_manager::target_process::target_matching::TargetMatch;
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ProcessData {
-    pub comm: [u8; 128],
+    pub comm: [u8; 64],
+    pub args: [u8; 128],
     pub len: usize,
 }
 
@@ -116,7 +117,8 @@ pub async fn initialize(
                     let data = unsafe { ptr.read_unaligned() };
                     let filename =
                         std::str::from_utf8(&data.comm[..data.len]).unwrap_or("Invalid UTF-8");
-                    info!("running: {}", filename);
+                    let args = std::str::from_utf8(&data.args).unwrap_or("Invalid UTF-8 in args");
+                    info!("running: {} with args: {}", filename, args);
                 }
             }
         });
