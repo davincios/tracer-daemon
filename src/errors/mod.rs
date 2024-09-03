@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-
 pub mod conditions;
 mod templates;
 use conditions::ErrorCondition;
@@ -10,10 +8,11 @@ pub use templates::ERROR_TEMPLATES;
 
 use crate::{
     event_recorder::{EventRecorder, EventType},
-    file_system_watcher::FileInfo,
+    file_system_watcher::FileSystemWatcher,
+    system_state_manager::{LogEntry, SystemStateManager, SystemStateSnapshot},
 };
 
-#[derive(Serialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
 pub enum Issue {
     OutOfMemory,
     Other,
@@ -28,29 +27,21 @@ pub enum ErrorSeverity {
     Critical,
 }
 
+#[derive(Serialize, Clone)]
 pub struct ToolRunSummary {
     pub tool_name: String,
     pub tool_path: String,
     pub run_duration: u64,
     pub max_memory_utilization: f64,
     pub max_cpu_usage: f64,
+    pub timestamp: u64,
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Clone)]
 pub struct SystemSummary {
     pub cpu_utilization: f64,
     pub memory_utilization: f64,
     pub disk_utilizations: Vec<f64>,
-}
-
-pub struct SystemStateSnapshot<'a> {
-    pub system_summary: SystemSummary,
-    pub tool_run_summaries: Vec<ToolRunSummary>,
-    pub workspace_files: &'a HashMap<String, FileInfo>,
-    pub stdout_lines: &'a Vec<String>,
-    pub stderr_lines: &'a Vec<String>,
-    pub syslog_lines: &'a Vec<String>,
-    pub found_issues: &'a Vec<Issue>,
 }
 
 pub struct ErrorTemplate {
@@ -62,13 +53,78 @@ pub struct ErrorTemplate {
     pub condition: ErrorCondition,
 }
 
+#[derive(Serialize, Default)]
+pub struct TriggerMetadata {
+    pub stdout_lines: Vec<LogEntry>,
+    pub stderr_lines: Vec<LogEntry>,
+    pub syslog_lines: Vec<LogEntry>,
+    pub files: Vec<String>,
+    pub tool_run_summaries: Vec<ToolRunSummary>,
+    pub issues: Vec<Issue>, // Isn't really used at the moment
+}
+
+impl TriggerMetadata {
+    pub fn new_stdout(stdout_line: LogEntry) -> TriggerMetadata {
+        TriggerMetadata {
+            stdout_lines: vec![stdout_line],
+            ..Default::default()
+        }
+    }
+
+    pub fn new_stderr(stderr_line: LogEntry) -> TriggerMetadata {
+        TriggerMetadata {
+            stderr_lines: vec![stderr_line],
+            ..Default::default()
+        }
+    }
+
+    pub fn new_file(file: String) -> TriggerMetadata {
+        TriggerMetadata {
+            files: vec![file],
+            ..Default::default()
+        }
+    }
+
+    pub fn new_syslog(syslog_line: LogEntry) -> TriggerMetadata {
+        TriggerMetadata {
+            syslog_lines: vec![syslog_line],
+            ..Default::default()
+        }
+    }
+
+    pub fn new_tool_run_summaries(tool_run_summary: ToolRunSummary) -> TriggerMetadata {
+        TriggerMetadata {
+            tool_run_summaries: vec![tool_run_summary],
+            ..Default::default()
+        }
+    }
+
+    pub fn new_issue(issue: Issue) -> TriggerMetadata {
+        TriggerMetadata {
+            issues: vec![issue],
+            ..Default::default()
+        }
+    }
+
+    pub fn merge(&mut self, other: TriggerMetadata) {
+        self.stdout_lines.extend(other.stdout_lines);
+        self.stderr_lines.extend(other.stderr_lines);
+        self.syslog_lines.extend(other.syslog_lines);
+        self.tool_run_summaries.extend(other.tool_run_summaries);
+        self.issues.extend(other.issues);
+        self.files.extend(other.files);
+    }
+}
+
 #[derive(Serialize)]
-pub struct ErrorOutput {
+pub struct ErrorOutput<'a> {
     pub id: String,
     pub display_name: String,
     pub severity: ErrorSeverity,
     pub causes: Vec<String>,
     pub advices: Vec<String>,
+    pub trigger_metadata: TriggerMetadata,
+    pub system_state: SystemStateSnapshot<'a>,
 }
 
 pub struct ErrorRecognition<'a> {
@@ -80,16 +136,21 @@ impl ErrorRecognition<'_> {
         ErrorRecognition { templates }
     }
 
-    pub fn recognize_errors(&self, system_state: SystemStateSnapshot) -> Vec<ErrorOutput> {
+    pub fn recognize_errors<'a>(
+        &self,
+        system_state: SystemStateSnapshot<'a>,
+    ) -> Vec<ErrorOutput<'a>> {
         let mut errors = Vec::new();
         for template in self.templates {
-            if template.condition.trigger(&system_state) {
+            if let Some(trigger_metadata) = template.condition.trigger(&system_state) {
                 let error = ErrorOutput {
                     id: template.id.clone(),
                     display_name: template.display_name.clone(),
                     severity: template.severity,
                     causes: template.causes.clone(),
                     advices: template.advices.clone(),
+                    trigger_metadata,
+                    system_state: system_state.clone(),
                 };
                 errors.push(error);
             }
@@ -100,9 +161,16 @@ impl ErrorRecognition<'_> {
     pub fn recognize_and_record_errors(
         &self,
         event_recorder: &mut EventRecorder,
-        system_state: SystemStateSnapshot,
+        system_state_manager: &mut SystemStateManager,
+        file_system_watcher: &FileSystemWatcher,
     ) {
-        let errors = self.recognize_errors(system_state);
+        let system_state =
+            system_state_manager.get_current_state(file_system_watcher.get_current_all_files());
+        if system_state.is_none() {
+            return;
+        }
+        let errors = self.recognize_errors(system_state.unwrap());
+        let mut triggers_to_clear = vec![];
         for error in errors {
             event_recorder.record_event(
                 EventType::ErrorEvent,
@@ -110,6 +178,12 @@ impl ErrorRecognition<'_> {
                 Some(serde_json::to_value(&error).unwrap()),
                 None,
             );
+
+            triggers_to_clear.push(error.trigger_metadata);
+        }
+
+        for trigger in triggers_to_clear {
+            system_state_manager.clear_by_trigger_metadata(&trigger);
         }
     }
 }
@@ -121,6 +195,7 @@ mod tests {
     use crate::{
         errors::{ErrorRecognition, SystemStateSnapshot, SystemSummary},
         file_system_watcher::FileInfo,
+        system_state_manager::IssueEntry,
     };
 
     use super::{
@@ -178,7 +253,10 @@ mod tests {
             stdout_lines: &vec![],
             stderr_lines: &vec![],
             syslog_lines: &vec![],
-            found_issues: &vec![Issue::Other],
+            found_issues: &vec![IssueEntry {
+                timestamp: 0,
+                issue: Issue::Other,
+            }],
         };
 
         let error_recognition = ErrorRecognition::new(&templates);
@@ -239,7 +317,10 @@ mod tests {
             stdout_lines: &vec![],
             stderr_lines: &vec![],
             syslog_lines: &vec![],
-            found_issues: &vec![Issue::OutOfMemory],
+            found_issues: &vec![IssueEntry {
+                timestamp: 0,
+                issue: Issue::OutOfMemory,
+            }],
         };
 
         let error_recognition = ErrorRecognition::new(&templates);

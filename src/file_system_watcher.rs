@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 use predicates::prelude::predicate;
 use predicates::str::RegexPredicate;
 use predicates::Predicate;
+use serde::Serialize;
 
 use crate::debug_log::Logger;
 use crate::s3_upload::upload_from_file_path;
@@ -22,7 +23,7 @@ pub struct WatchedFileInfo {
     pub action: FileAction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct FileInfo {
     pub name: String,
     pub directory: String,
@@ -247,6 +248,10 @@ impl FileSystemWatcher {
         Ok(())
     }
 
+    pub fn get_current_all_files(&self) -> &HashMap<String, FileInfo> {
+        &self.all_files
+    }
+
     pub async fn upload_file(
         &self,
         service_url: &str,
@@ -369,7 +374,6 @@ impl FileSystemWatcher {
 
         self.watched_files = watched_files;
         self.all_files = found_files;
-
         Ok(())
     }
 }

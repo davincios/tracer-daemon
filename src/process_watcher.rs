@@ -1,6 +1,7 @@
 // src/process_watcher.rs
 use crate::config_manager::target_process::Target;
 use crate::config_manager::target_process::TargetMatchable;
+use crate::errors::ToolRunSummary;
 use crate::event_recorder::EventRecorder;
 use crate::event_recorder::EventType;
 use crate::file_system_watcher::FileSystemWatcher;
@@ -29,6 +30,9 @@ enum ProcLastUpdate {
 
 pub struct Proc {
     name: String,
+    binary_path: String,
+    max_memory_utilization: f64,
+    max_cpu_usage: f64,
     start_time: DateTime<Utc>,
     last_update: ProcLastUpdate,
     just_started: bool,
@@ -192,8 +196,9 @@ impl ProcessWatcher {
         &mut self,
         system: &mut System,
         event_logger: &mut EventRecorder,
-    ) -> Result<()> {
+    ) -> Result<Vec<ToolRunSummary>> {
         let mut to_remove = vec![];
+
         for (pid, proc) in self.seen.iter() {
             if !system.processes().contains_key(pid) {
                 self.log_completed_process(pid, proc, event_logger)?;
@@ -201,11 +206,21 @@ impl ProcessWatcher {
             }
         }
 
+        let mut result = vec![];
+
         for pid in to_remove {
-            self.seen.remove(&pid);
+            let proc = self.seen.remove(&pid).unwrap();
+            result.push(ToolRunSummary {
+                tool_name: proc.name,
+                run_duration: (Utc::now() - proc.start_time).to_std()?.as_millis() as u64,
+                tool_path: proc.binary_path,
+                max_memory_utilization: proc.max_memory_utilization,
+                max_cpu_usage: proc.max_cpu_usage,
+                timestamp: proc.start_time.to_utc().timestamp() as u64,
+            });
         }
 
-        Ok(())
+        Ok(result)
     }
 
     pub fn build_process_trees(&mut self, system_processes: &HashMap<Pid, Process>) {
@@ -376,6 +391,9 @@ impl ProcessWatcher {
                 start_time: Utc::now(),
                 last_update: ProcLastUpdate::RefreshesRemaining(2),
                 just_started: true,
+                binary_path: short_lived_process.properties.tool_binary_path.clone(),
+                max_memory_utilization: short_lived_process.properties.process_memory_usage as f64,
+                max_cpu_usage: short_lived_process.properties.process_cpu_utilization as f64,
             });
         }
 
@@ -424,20 +442,35 @@ impl ProcessWatcher {
         target: Option<&Target>,
         file_watcher: &FileSystemWatcher,
     ) -> Result<()> {
-        self.seen.insert(
-            pid,
-            Proc {
-                name: proc.name().to_string(),
-                start_time: Utc::now(),
-                last_update: ProcLastUpdate::RefreshesRemaining(2),
-                just_started: true,
-            },
-        );
+        let display_name = if let Some(target) = target {
+            let name = target
+                .get_display_name_object()
+                .get_display_name(proc.name(), proc.cmd());
+
+            name
+        } else {
+            proc.name().to_owned()
+        };
 
         let Some(p) = system.process(pid) else {
             eprintln!("[{}] Process({}) wasn't found", Utc::now(), proc.name());
             return Ok(());
         };
+
+        let process_properties = Self::gather_process_data(&pid, p, Some(display_name.clone()));
+
+        self.seen.insert(
+            pid,
+            Proc {
+                name: process_properties.tool_name.clone(),
+                start_time: Utc::now(),
+                last_update: ProcLastUpdate::RefreshesRemaining(2),
+                just_started: true,
+                binary_path: process_properties.tool_binary_path.clone(),
+                max_memory_utilization: proc.memory() as f64,
+                max_cpu_usage: proc.cpu_usage() as f64,
+            },
+        );
 
         let start_time = Utc::now();
 
@@ -451,11 +484,7 @@ impl ProcessWatcher {
             proc.name().to_owned()
         };
 
-        let mut properties = json!(Self::gather_process_data(
-            &pid,
-            p,
-            Some(display_name.clone())
-        ));
+        let mut properties = json!(process_properties);
 
         let cmd_arguments = p.cmd();
         let mut input_files = vec![];

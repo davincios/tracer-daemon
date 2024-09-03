@@ -1,5 +1,5 @@
 use crate::config_manager::{INTERCEPTOR_STDERR_FILE, INTERCEPTOR_STDOUT_FILE};
-use crate::errors::{ErrorRecognition, SystemStateSnapshot, ERROR_TEMPLATES};
+use crate::errors::{ErrorRecognition, ERROR_TEMPLATES};
 // src/tracer_client.rs
 use crate::event_recorder::{EventRecorder, EventType};
 use crate::events::{send_end_run_event, send_start_run_event};
@@ -19,7 +19,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use sysinfo::{Pid, System};
+use sysinfo::{Disks, Pid, System};
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
@@ -229,6 +229,7 @@ impl TracerClient {
         if self.current_run.is_some() {
             send_end_run_event(&self.service_url, &self.api_key).await?;
             self.current_run = None;
+            self.system_state_manager.clear_all();
         }
         Ok(())
     }
@@ -272,6 +273,7 @@ impl TracerClient {
                 self.last_file_size_change_time_delta,
             )
             .await?;
+
         Ok(())
     }
 
@@ -292,6 +294,15 @@ impl TracerClient {
         )
         .await?;
 
+        let timestamp: u64 = Utc::now().timestamp_millis() as u64;
+
+        self.system_state_manager
+            .add_syslog_lines(timestamp, self.syslog_lines_buffer.read().await.clone());
+        self.system_state_manager
+            .add_stdout_lines(timestamp, self.stdout_lines_buffer.read().await.clone());
+        self.system_state_manager
+            .add_stderr_lines(timestamp, self.stderr_lines_buffer.read().await.clone());
+
         self.file_content_watcher
             .poll_files_and_clear_buffers()
             .await?;
@@ -300,15 +311,30 @@ impl TracerClient {
     }
 
     pub async fn poll_errors(&mut self) -> Result<()> {
-        let system_state: SystemStateSnapshot<'_> = self.system_state_manager.get_current_state();
-        self.error_recognizer
-            .recognize_and_record_errors(&mut self.logs, system_state);
-
+        self.error_recognizer.recognize_and_record_errors(
+            &mut self.logs,
+            &mut self.system_state_manager,
+            &self.file_system_watcher,
+        );
         Ok(())
     }
 
     pub fn refresh_sysinfo(&mut self) {
         self.system.refresh_all();
+        let disks = Disks::new_with_refreshed_list()
+            .into_iter()
+            .map(|d| {
+                let total_space = d.total_space();
+                let available_space = d.available_space();
+                let used_space = total_space - available_space;
+                (used_space as f64 / total_space as f64) * 100.0
+            })
+            .collect();
+        self.system_state_manager.refresh_system_summary(
+            self.system.global_cpu_info().cpu_usage() as f64,
+            self.system.available_memory() as f64 / self.system.total_memory() as f64,
+            disks,
+        );
     }
 
     pub fn reset_just_started_process_flag(&mut self) {
