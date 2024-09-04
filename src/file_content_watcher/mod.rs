@@ -138,19 +138,24 @@ impl FileContentWatcher {
         tokio::spawn(Self::run_file_lines_read_thread(entries))
     }
 
-    pub async fn poll_files_and_clear_buffers(&mut self) -> Result<Vec<IssueOutput>> {
+    pub async fn flush_buffer(buffer: &Arc<RwLock<Vec<String>>>) -> Vec<String> {
+        let mut lines = vec![];
+        let mut vec = buffer.write().await;
+        std::mem::swap(&mut lines, &mut vec);
+
+        lines
+    }
+
+    pub async fn poll_files_and_clear_buffers(
+        &mut self,
+    ) -> Result<(Vec<IssueOutput>, Vec<Vec<String>>)> {
         let mut issues: Vec<IssueOutput> = vec![];
+        let mut result_lines = vec![];
 
         let logger = Logger::new();
 
         for entry in self.entries.iter_mut() {
-            let mut lines = vec![];
-
-            {
-                let mut vec = entry.pending_lines.write().await;
-                std::mem::swap(&mut lines, &mut vec);
-            }
-
+            let lines = Self::flush_buffer(&entry.pending_lines).await;
             for line in lines.iter() {
                 for pattern in entry.patterns.iter() {
                     if pattern.regex.eval(line) {
@@ -179,34 +184,34 @@ impl FileContentWatcher {
                     entry.last_lines.remove(0);
                 }
             }
+
+            result_lines.push(lines);
         }
 
-        Ok(issues)
+        Ok((issues, result_lines))
     }
 
     pub async fn send_lines_to_endpoint(
         endpoint_url: &str,
         api_key: &str,
-        pending_lines: &Arc<RwLock<Vec<String>>>,
+        pending_lines: &Vec<String>,
         is_error: bool,
     ) -> Result<()> {
         let logger = Logger::new();
 
-        if pending_lines.read().await.is_empty() {
+        if pending_lines.is_empty() {
             logger.log("No lines from stdout to send", None).await;
             return Ok(());
         }
 
         let body = json!({
-            "lines": *pending_lines.as_ref().read().await,
+            "lines": pending_lines,
             "isError": is_error
         });
 
         logger
             .log(&format!("Sending stdout lines: {:?}", body), None)
             .await;
-
-        pending_lines.write().await.clear();
 
         send_http_body(endpoint_url, api_key, &body).await?;
 

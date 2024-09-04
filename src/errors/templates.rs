@@ -28,7 +28,7 @@ lazy_static! {
       ]),
       causes: vec!["Lack of sufficient computational resource (RAM/Cores)".to_string(),
       "Species mismatch – wrong GTF or FASTA file used for genome index creation".to_string()],
-      advices: vec!["Check that the path to genome files, specified in --genomeDir is correct and the files are present, and have user read permissions".to_string(),
+      advice: vec!["Check that the path to genome files, specified in --genomeDir is correct and the files are present, and have user read permissions".to_string(),
           "Check that enough cores/RAM has been assigned to STAR".to_string(),
       ],
     },
@@ -43,7 +43,7 @@ lazy_static! {
       ]),
       causes: vec!["Parameter Mismatch".to_string(),
           "SpUse of outdated genome assembly (FASTA)".to_string()],
-      advices: vec!["Re-run genome generation without --sjdbOverhang option".to_string(),
+      advice: vec!["Re-run genome generation without --sjdbOverhang option".to_string(),
           "Replace genome assembly with updated or most recent FASTA".to_string(),
           "Use an annotation GTF/GFF file to enable genome index generation genome assembly with updated or most recent FASTA file".to_string(),]
     },
@@ -58,7 +58,7 @@ lazy_static! {
       ]),
       causes: vec!["Read length shorter than expected".to_string(),
           "Wrongly formed or incorrectly formatted FASTQ file".to_string()],
-      advices: vec!["Ensure all input reads meet the minimum length requirement".to_string(),
+      advice: vec!["Ensure all input reads meet the minimum length requirement".to_string(),
           "Use grep -A5 to survey the short reads or the format of the FASTQ file, to enable correction of the input file".to_string(),]
     },
     ErrorTemplate {
@@ -72,7 +72,7 @@ lazy_static! {
       causes: vec!["Indexing error".to_string(),
           "Corrupt input file".to_string(),
           "Incorrect path specified to the generated genome index".to_string()],
-      advices: vec!["Check the integrity of input files".to_string(),
+      advice: vec!["Check the integrity of input files".to_string(),
           "Check that enough cores/RAM has been assigned to bowtie2".to_string(),
           "Check the specified path for the generated genome index".to_string()
       ],
@@ -87,10 +87,21 @@ lazy_static! {
       causes: vec!["Inconsistent kmer size in index".to_string(),
           "Default kmer size of 31 not suitable for short reads".to_string(),
           "Too many short, fragmented reads in sample".to_string()],
-      advices: vec!["Ensure the kmer size used during indexing matches the quantification step".to_string(),
+      advice: vec!["Ensure the kmer size used during indexing matches the quantification step".to_string(),
           "Choose appropriate kmer size".to_string(),
           "Determine frequency distribution of read sizes in input dataset".to_string()
       ],
+      },
+    ErrorTemplate {
+        id: "test_error_1".to_string(),
+        display_name: "Test Error 1".to_string(),
+        severity: ErrorSeverity::Critical,
+        condition: ErrorCondition::And(vec![
+            stdout_condition!(".*test error 1.*"),
+            ErrorCondition::Not(boxed_condition!(ToolRunTimeGreaterThanCondition { tool_name: "test".to_string(), run_time: 10 }))
+        ]),
+        causes: vec!["Test cause 1".to_string()],
+        advice: vec!["Test advice 1".to_string(), "Test advice 2".to_string()],
     }
     ];
 }

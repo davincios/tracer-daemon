@@ -319,8 +319,6 @@ impl FileSystemWatcher {
 
         let paths = found_files.keys().cloned().collect::<Vec<String>>();
 
-        logger.log(&format!("Found files: {:?}", paths), None).await;
-
         let paths: HashSet<String> = HashSet::from_iter(
             [
                 paths,

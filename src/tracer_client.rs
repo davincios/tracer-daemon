@@ -278,10 +278,21 @@ impl TracerClient {
     }
 
     pub async fn poll_file_content_watcher_streams(&mut self) -> Result<()> {
+        let timestamp: u64 = Utc::now().timestamp_millis() as u64;
+
+        let (_issues, mut lines) = self
+            .file_content_watcher
+            .poll_files_and_clear_buffers()
+            .await?;
+
+        if lines.len() != 3 {
+            return Ok(());
+        }
+
         FileContentWatcher::send_lines_to_endpoint(
             &format!("{}/stdout-capture", self.service_url),
             &self.api_key,
-            &self.stdout_lines_buffer,
+            &lines[1],
             false,
         )
         .await?;
@@ -289,33 +300,33 @@ impl TracerClient {
         FileContentWatcher::send_lines_to_endpoint(
             &format!("{}/stdout-capture", self.service_url),
             &self.api_key,
-            &self.stderr_lines_buffer,
+            &lines[2],
             true,
         )
         .await?;
 
-        let timestamp: u64 = Utc::now().timestamp_millis() as u64;
+        self.system_state_manager // Synchronized order with setup_file_content_watcher
+            .add_stderr_lines(timestamp, lines.pop().unwrap());
 
         self.system_state_manager
-            .add_syslog_lines(timestamp, self.syslog_lines_buffer.read().await.clone());
-        self.system_state_manager
-            .add_stdout_lines(timestamp, self.stdout_lines_buffer.read().await.clone());
-        self.system_state_manager
-            .add_stderr_lines(timestamp, self.stderr_lines_buffer.read().await.clone());
+            .add_stdout_lines(timestamp, lines.pop().unwrap())
+            .await;
 
-        self.file_content_watcher
-            .poll_files_and_clear_buffers()
-            .await?;
+        self.system_state_manager
+            .add_syslog_lines(timestamp, lines.pop().unwrap());
 
         Ok(())
     }
 
     pub async fn poll_errors(&mut self) -> Result<()> {
-        self.error_recognizer.recognize_and_record_errors(
-            &mut self.logs,
-            &mut self.system_state_manager,
-            &self.file_system_watcher,
-        );
+        self.error_recognizer
+            .recognize_and_record_errors(
+                &mut self.logs,
+                &mut self.system_state_manager,
+                &self.file_system_watcher,
+            )
+            .await;
+        self.system_state_manager.cleanup_invalid();
         Ok(())
     }
 

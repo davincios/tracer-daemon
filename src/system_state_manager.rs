@@ -3,20 +3,20 @@ use std::collections::HashMap;
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::errors::TriggerMetadata;
+use crate::{debug_log::Logger, errors::TriggerMetadata};
 #[allow(dead_code)]
 use crate::{
     errors::{Issue, SystemSummary, ToolRunSummary},
     file_system_watcher::FileInfo,
 };
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct LogEntry {
     pub timestamp: u64,
     pub message: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct IssueEntry {
     pub timestamp: u64,
     pub issue: Issue,
@@ -25,15 +25,17 @@ pub struct IssueEntry {
 const STATE_VALIDITY_DURATION: u64 = 1000 * 30; // 30 seconds
 const CLEANUP_INTERVAL: u64 = 1000 * 2; // 2 seconds
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct SystemStateSnapshot<'a> {
     pub system_summary: SystemSummary,
     pub tool_run_summaries: Vec<ToolRunSummary>,
-    pub workspace_files: &'a HashMap<String, FileInfo>,
     pub stdout_lines: &'a Vec<LogEntry>,
     pub stderr_lines: &'a Vec<LogEntry>,
     pub syslog_lines: &'a Vec<LogEntry>,
     pub found_issues: &'a Vec<IssueEntry>,
+
+    #[serde(skip)]
+    pub workspace_files: &'a HashMap<String, FileInfo>,
 }
 
 pub struct SystemStateManager {
@@ -84,7 +86,13 @@ impl SystemStateManager {
         self.tool_run_summaries.push(summary);
     }
 
-    pub fn add_stdout_lines(&mut self, timestamp: u64, messages: Vec<String>) {
+    pub async fn add_stdout_lines(&mut self, timestamp: u64, messages: Vec<String>) {
+        let logger = Logger::new();
+
+        logger
+            .log(&format!("Adding stdout lines: {:?}", messages), None)
+            .await;
+
         self.stdout_lines.append(
             &mut messages
                 .iter()

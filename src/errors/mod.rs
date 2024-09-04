@@ -7,6 +7,7 @@ use serde::Serialize;
 pub use templates::ERROR_TEMPLATES;
 
 use crate::{
+    debug_log::Logger,
     event_recorder::{EventRecorder, EventType},
     file_system_watcher::FileSystemWatcher,
     system_state_manager::{LogEntry, SystemStateManager, SystemStateSnapshot},
@@ -27,7 +28,7 @@ pub enum ErrorSeverity {
     Critical,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct ToolRunSummary {
     pub tool_name: String,
     pub tool_path: String,
@@ -37,7 +38,7 @@ pub struct ToolRunSummary {
     pub timestamp: u64,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct SystemSummary {
     pub cpu_utilization: f64,
     pub memory_utilization: f64,
@@ -49,11 +50,11 @@ pub struct ErrorTemplate {
     pub display_name: String,
     pub severity: ErrorSeverity,
     pub causes: Vec<String>,
-    pub advices: Vec<String>,
+    pub advice: Vec<String>,
     pub condition: ErrorCondition,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Debug)]
 pub struct TriggerMetadata {
     pub stdout_lines: Vec<LogEntry>,
     pub stderr_lines: Vec<LogEntry>,
@@ -116,13 +117,13 @@ impl TriggerMetadata {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ErrorOutput<'a> {
     pub id: String,
     pub display_name: String,
     pub severity: ErrorSeverity,
     pub causes: Vec<String>,
-    pub advices: Vec<String>,
+    pub advice: Vec<String>,
     pub trigger_metadata: TriggerMetadata,
     pub system_state: SystemStateSnapshot<'a>,
 }
@@ -148,7 +149,7 @@ impl ErrorRecognition<'_> {
                     display_name: template.display_name.clone(),
                     severity: template.severity,
                     causes: template.causes.clone(),
-                    advices: template.advices.clone(),
+                    advice: template.advice.clone(),
                     trigger_metadata,
                     system_state: system_state.clone(),
                 };
@@ -158,18 +159,27 @@ impl ErrorRecognition<'_> {
         errors
     }
 
-    pub fn recognize_and_record_errors(
+    pub async fn recognize_and_record_errors(
         &self,
         event_recorder: &mut EventRecorder,
         system_state_manager: &mut SystemStateManager,
         file_system_watcher: &FileSystemWatcher,
     ) {
+        let logger = Logger::new();
         let system_state =
             system_state_manager.get_current_state(file_system_watcher.get_current_all_files());
+
         if system_state.is_none() {
             return;
         }
+
         let errors = self.recognize_errors(system_state.unwrap());
+        if !errors.is_empty() {
+            logger
+                .log(&format!("Recognized errors: {:?}", &errors), None)
+                .await;
+        }
+
         let mut triggers_to_clear = vec![];
         for error in errors {
             event_recorder.record_event(
@@ -212,7 +222,7 @@ mod tests {
             display_name: "".to_string(),
             severity: ErrorSeverity::Warning,
             causes: vec![],
-            advices: vec![],
+            advice: vec![],
             condition,
         }
     }
@@ -225,7 +235,7 @@ mod tests {
                 display_name: "Basic issue".to_string(),
                 severity: ErrorSeverity::Warning,
                 causes: vec!["Basic issue cause".to_string()],
-                advices: vec!["Basic issue advice".to_string()],
+                advice: vec!["Basic issue advice".to_string()],
                 condition: ErrorCondition::ExternalTrigger(Box::new(IssueCondition {
                     issue: Issue::Other,
                 })),
@@ -235,7 +245,7 @@ mod tests {
                 display_name: "Other issue".to_string(),
                 severity: ErrorSeverity::Warning,
                 causes: vec!["Other issue cause".to_string()],
-                advices: vec!["Other issue advice".to_string()],
+                advice: vec!["Other issue advice".to_string()],
                 condition: ErrorCondition::ExternalTrigger(Box::new(IssueCondition {
                     issue: Issue::OutOfMemory,
                 })),
@@ -268,7 +278,7 @@ mod tests {
         assert_eq!(errors[0].display_name, "Basic issue");
         assert_eq!(errors[0].severity, ErrorSeverity::Warning);
         assert_eq!(errors[0].causes, vec!["Basic issue cause".to_string()]);
-        assert_eq!(errors[0].advices, vec!["Basic issue advice".to_string()]);
+        assert_eq!(errors[0].advice, vec!["Basic issue advice".to_string()]);
     }
 
     #[test]

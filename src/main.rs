@@ -133,6 +133,7 @@ pub async fn monitor_processes_with_tracer_client(tracer_client: &mut TracerClie
     // tracer_client.run_cleanup().await?;
     tracer_client.poll_process_metrics().await?;
     tracer_client.poll_file_content_watcher_streams().await?;
+    tracer_client.poll_errors().await?;
     tracer_client.refresh_sysinfo();
     tracer_client.reset_just_started_process_flag();
     Ok(())
