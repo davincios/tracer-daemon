@@ -15,13 +15,7 @@ impl SystemMetricsCollector {
         SystemMetricsCollector
     }
 
-    pub fn gather_metrics_object_attributes(system: &mut System) -> Value {
-        let used_memory = system.used_memory();
-        let total_memory = system.total_memory();
-        let memory_utilization = (used_memory as f64 / total_memory as f64) * 100.0;
-
-        let cpu_usage = system.global_cpu_info().cpu_usage();
-
+    pub fn gather_disk_data() -> HashMap<String, serde_json::Value> {
         let disks: Disks = Disks::new_with_refreshed_list();
 
         let mut d_stats: HashMap<String, serde_json::Value> = HashMap::new();
@@ -46,12 +40,26 @@ impl SystemMetricsCollector {
             d_stats.insert(d_name.to_string(), disk_data);
         }
 
+        d_stats
+    }
+
+    pub fn gather_metrics_object_attributes(system: &mut System) -> Value {
+        let used_memory = system.used_memory();
+        let total_memory = system.total_memory();
+        let memory_utilization = (used_memory as f64 / total_memory as f64) * 100.0;
+
+        let cpu_usage = system.global_cpu_info().cpu_usage();
+
+        let d_stats = Self::gather_disk_data();
+
         let attributes = json!({
             "events_name": "global_system_metrics",
             "system_memory_total": total_memory,
             "system_memory_used": used_memory,
             "system_memory_available": system.available_memory(),
             "system_memory_utilization": memory_utilization,
+            "system_memory_swap_total": system.total_swap(),
+            "system_memory_swap_used": system.used_swap(),
             "system_cpu_utilization": cpu_usage,
             "system_disk_io": d_stats,
         });
@@ -99,6 +107,8 @@ mod tests {
         assert!(attributes["system_memory_used"].is_number());
         assert!(attributes["system_memory_available"].is_number());
         assert!(attributes["system_memory_utilization"].is_number());
+        assert!(attributes["system_memory_swap_total"].is_number());
+        assert!(attributes["system_memory_swap_used"].is_number());
         assert!(attributes["system_cpu_utilization"].is_number());
         assert!(attributes["system_disk_io"].is_object());
     }

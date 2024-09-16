@@ -5,8 +5,8 @@
 #   DESCRIPTION:  Parameters used in the rest of this script
 #-------------------------------------------------------------------------------
 SCRIPT_VERSION="v0.0.1"
-TRACER_VERSION="v0.0.112"
-TRACER_VERSION_DEVELOP="v0.0.115-dev"
+TRACER_VERSION="v0.0.130"
+TRACER_VERSION_DEVELOP="v0.0.129-dev"
 
 TRACER_HOME="$HOME/.tracerbio"
 LOGFILE_NAME="tracer-installer.log"
@@ -158,7 +158,7 @@ function print_help() {
 function set_urls() {
     if [ "$ENVIRONMENT" = "develop" ]; then
         TRACER_VERSION=$TRACER_VERSION_DEVELOP
-        SERVICE_URL="https://develop.app.tracer.bio/api/data-collector-api"
+        SERVICE_URL="https://develop.app.tracer.bio/api/"
     fi
 
     TRACER_LINUX_URL="https://github.com/davincios/tracer-daemon/releases/download/${TRACER_VERSION}/tracer-x86_64-unknown-linux-gnu.tar.gz"

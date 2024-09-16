@@ -10,6 +10,10 @@ use crate::config_manager::target_process::Target;
 
 const INTERCEPTOR_BASHRC_PATH: &str = ".config/tracer/.bashrc";
 const INTERCEPTOR_SOURCE_COMMAND: &str = "source ~/.config/tracer/.bashrc";
+pub const INTERCEPTOR_STDOUT_FILE: &str = "/tmp/tracerd-stdout";
+pub const INTERCEPTOR_STDERR_FILE: &str = "/tmp/tracerd-stderr";
+const INTERCEPTOR_STDOUT_COMMAND: &str = "exec &> >(tee >(awk 'system(\"[ ! -f /tmp/tracerd.pid ]\") == 1' >> \"/tmp/tracerd-stdout\"))\n";
+const INTERCEPTOR_STDERR_COMMAND: &str = "exec 2> >(tee >(awk 'system(\"[ ! -f /tmp/tracerd.pid ]\") == 1' >> \"/tmp/tracerd-stderr\"))\n";
 
 pub fn get_command_interceptor(
     current_tracer_exe_path: PathBuf,
@@ -38,7 +42,7 @@ pub fn rewrite_interceptor_bashrc_file(
         .open(path.join(INTERCEPTOR_BASHRC_PATH))?;
 
     for command in targets.into_iter().map(|target| {
-        let name = target.get_display_name();
+        let name = target.get_display_name_object();
         let command_to_alias = match &target.match_type {
             TargetMatch::ShortLivedProcessExecutable(alias) => alias.clone(),
             _ => "unknown_command".to_string(),
@@ -48,12 +52,20 @@ pub fn rewrite_interceptor_bashrc_file(
             get_command_interceptor(
                 current_tracer_exe_path.clone(),
                 &command_to_alias,
-                &name.unwrap_or(command_to_alias.clone())
+                &name.get_display_name(&command_to_alias, &[])
             )
         )
     }) {
         bashrc_file.write_all(command.as_bytes()).unwrap();
     }
+
+    bashrc_file
+        .write_all(INTERCEPTOR_STDOUT_COMMAND.as_bytes())
+        .unwrap();
+
+    bashrc_file
+        .write_all(INTERCEPTOR_STDERR_COMMAND.as_bytes())
+        .unwrap();
 
     Ok(())
 }
