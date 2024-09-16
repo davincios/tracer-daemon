@@ -111,6 +111,11 @@ impl TracerClient {
         Ok(())
     }
 
+    pub fn track_ebpf_process(&mut self, pid: u32, bin_path: &str, cmd: &str) {
+        self.process_watcher
+            .track_ebpf_process(pid, bin_path, cmd, &mut self.logs);
+    }
+
     pub fn get_syslog_lines_buffer(&self) -> LinesBufferArc {
         self.syslog_lines_buffer.clone()
     }

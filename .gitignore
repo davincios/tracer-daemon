@@ -29,3 +29,4 @@ error_outgoing_http_calls.txt
 log_outgoing_http_calls.txt
 
 debug.log
+/ebpf-build/
