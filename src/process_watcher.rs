@@ -4,6 +4,7 @@ use crate::event_recorder::EventRecorder;
 use crate::event_recorder::EventType;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use log::info;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
@@ -289,6 +290,43 @@ impl ProcessWatcher {
             process_disk_usage_write_last_interval: proc.disk_usage().written_bytes,
             process_memory_usage: proc.memory(),
             process_memory_virtual: proc.virtual_memory(),
+        }
+    }
+
+    pub fn track_ebpf_process(
+        &mut self,
+        pid: u32,
+        bin_path: &str,
+        cmd: &str,
+        event_logger: &mut EventRecorder,
+    ) {
+        let Some(_) = self
+            .targets
+            .iter()
+            .find(|target| target.matches(bin_path, cmd, ""))
+        else {
+            info!("ignoring {}", bin_path);
+            return;
+        };
+
+        info!("got {}:{}", bin_path, cmd);
+
+        let properties = json!({});
+        let timestamp = Utc::now().to_string();
+        event_logger.record_event(
+            EventType::ToolExecution,
+            format!("[{}] Short lived process: {}", timestamp, cmd,),
+            Some(properties),
+            None,
+        );
+
+        if let Vacant(v) = self.seen.entry(Pid::from_u32(pid)) {
+            v.insert(Proc {
+                name: cmd.to_string(),
+                start_time: Utc::now(),
+                last_update: None,
+                just_started: true,
+            });
         }
     }
 

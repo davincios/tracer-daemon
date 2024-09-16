@@ -1,16 +1,16 @@
 #![no_std]
 #![no_main]
 
-use core::hash::{Hash, Hasher};
+// use core::hash::{Hash, Hasher};
 
 use aya_ebpf::{
-    helpers::{bpf_probe_read_user, bpf_probe_read_user_str_bytes},
+    helpers::{bpf_probe_read_user, bpf_probe_read_user_str_bytes, gen::bpf_get_current_pid_tgid},
     macros::{map, tracepoint},
-    maps::{HashMap, PerfEventArray},
+    maps::PerfEventArray,
     programs::TracePointContext,
 };
 use aya_log_ebpf::info;
-use fnv::FnvHasher;
+// use fnv::FnvHasher;
 
 #[repr(C)]
 struct ExecveArgs {
@@ -24,19 +24,30 @@ struct ExecveArgs {
 
 #[repr(C)]
 pub struct ProcessData {
+    pub pid: u32,
     pub comm: [u8; 64],
     pub args: [u8; 128],
     pub len: usize,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct TaskStruct {
+    pub pid: i32,
+    pub tgid: i32,
+    pub real_parent: *const TaskStruct,
+    // Add other fields as needed
+}
+
 #[map(name = "EVENTS")]
 static mut EVENTS: PerfEventArray<ProcessData> = PerfEventArray::with_max_entries(1024, 0);
 
-#[map] //
-static WATCHLIST: HashMap<u64, u8> = HashMap::<u64, u8>::with_max_entries(1024, 0);
+// #[map] //
+// static WATCHLIST: HashMap<u64, u8> = HashMap::<u64, u8>::with_max_entries(1024, 0);
 
 #[tracepoint]
 pub fn watch(ctx: TracePointContext) -> u32 {
+    // 0
     try_tracerd(ctx).unwrap_or_default()
 }
 
@@ -62,40 +73,42 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
             .len()
     };
 
-    let mut hasher = FnvHasher::default();
-    let mut found: i32 = -1;
-    let mut index = len;
-    while index > 0 {
-        index -= 1;
+    // let mut hasher = FnvHasher::default();
+    // let mut found: i32 = -1;
+    // let mut index = len;
+    // while index > 0 {
+    //     index -= 1;
 
-        let val = filename[index];
+    //     let val = filename[index];
 
-        if val == b'/' || val == b'\\' {
-            found = index as i32;
-            break;
-        }
+    //     if val == b'/' || val == b'\\' {
+    //         found = index as i32;
+    //         break;
+    //     }
 
-        val.hash(&mut hasher);
-    }
+    //     val.hash(&mut hasher);
+    // }
 
-    if found == -1 {
-        return Ok(0);
-    }
+    // if found == -1 {
+    //     return Ok(0);
+    // }
 
-    let found = found as usize;
+    // let found = found as usize;
 
-    if found >= len - 2 {
-        return Ok(0);
-    }
+    // if found >= len - 2 {
+    //     return Ok(0);
+    // }
 
-    let hashed = hasher.finish();
+    // let hashed = hasher.finish();
 
-    unsafe {
-        if WATCHLIST.get(&hashed).is_none() {
-            // not in the watch list, exit early
-            return Ok(0);
-        }
-    }
+    // unsafe {
+    //     if WATCHLIST.get(&hashed).is_none() {
+    //         // not in the watch list, exit early
+    //         return Ok(0);
+    //     }
+    // }
+
+    let pid = unsafe { bpf_get_current_pid_tgid() as u32 };
 
     let argv_ptr = args.argv_ptr as *const *const u8;
     let mut arg_index: usize = 0;
@@ -129,6 +142,7 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
     }
 
     let data = ProcessData {
+        pid,
         comm: filename,
         args: arg_list,
         len,
@@ -140,14 +154,14 @@ fn try_tracerd(ctx: TracePointContext) -> Result<u32, u32> {
 
     // everything after is extra, can be removed
 
-    let start_ptr = unsafe { filename.as_ptr().add(found + 1) };
-    let binary_slice_len = len - found - 1;
-    let binary_slice = unsafe { core::slice::from_raw_parts(start_ptr, binary_slice_len) };
-    let binary_name = unsafe { core::str::from_utf8_unchecked(binary_slice) };
+    // let start_ptr = unsafe { filename.as_ptr().add(found + 1) };
+    // let binary_slice_len = len - found - 1;
+    // let binary_slice = unsafe { core::slice::from_raw_parts(start_ptr, binary_slice_len) };
+    // let binary_name = unsafe { core::str::from_utf8_unchecked(binary_slice) };
 
-    info!(&ctx, "read kernel string");
+    // info!(&ctx, "read kernel string");
 
-    info!(&ctx, "execve called with filename: {}", binary_name);
+    // info!(&ctx, "execve called with filename: {}", binary_name);
 
     Ok(0)
 }
