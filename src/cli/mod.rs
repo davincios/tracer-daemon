@@ -63,7 +63,7 @@ pub enum Commands {
     /// Remove all the temporary files created by the daemon, in a case of the process being terminated unexpectedly
     Cleanup,
 
-    /// Shows the current configuration and the daemon status
+    /// Show the current configuration and the daemon status
     Info,
 
     /// Update the daemon to the latest version
@@ -93,7 +93,7 @@ pub enum Commands {
     /// Log a message to the service for a short-lived process.
     LogShortLivedProcess { command: String },
 
-    /// Shows the current version of the daemon
+    /// Show the current version of the daemon
     Version,
 }
 
