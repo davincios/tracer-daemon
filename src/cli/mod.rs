@@ -93,7 +93,7 @@ pub enum Commands {
     /// Log a message to the service for a short-lived process.
     LogShortLivedProcess { command: String },
 
-    /// Shows the current version of the daemon
+    /// Show the current version of the daemon
     Version,
 }
 
